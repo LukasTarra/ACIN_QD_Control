@@ -74,7 +74,7 @@ class generic_wave_plate():
         return control_object
         
     def close(self):
-        pass      
+        pass
         
 
 
