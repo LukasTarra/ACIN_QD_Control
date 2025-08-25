@@ -1,11 +1,12 @@
 import numpy as np
 from qutip import basis, Qobj, mesolve
-import getparameters as gp
-#from params import Parameters  # Assuming params is defined in a separate file named params.py
+import matplotlib.pyplot as plt
+
+from getparameters import get_parameters
 
 def simulate_quantum_dot():
     # Load parameters from the params struct
-    params = gp.get_parameters()
+    params = get_parameters()
     E_X_H = params.E_X_H  # Exciton horizontal energy
     E_X_V = params.E_X_V  # Exciton vertical energy
     E_D_H = params.E_D_H  # Dark exciton horizontal energy
@@ -40,8 +41,8 @@ def simulate_quantum_dot():
 
     # Bright-dark coupling depending on Bx
     if bx != 0:
-        H_bx = -0.5 * mu_b * bx * (g_ex + g_hx) * (exciton_x * dark_exciton_x.dag() + dark_exciton_x * exciton_x.dag()) + \
-              -0.5 * mu_b * bx * (g_ex - g_hx) * (exciton_y * dark_exciton_y.dag() + dark_exciton_y * exciton_y.dag())
+        H_bx = -0.5 * mu_b * bx * (g_hx + g_ex) * (exciton_x * dark_exciton_x.dag() + dark_exciton_x * exciton_x.dag()) + \
+              -0.5 * mu_b * bx * (g_hx - g_ex) * (exciton_y * dark_exciton_y.dag() + dark_exciton_y * exciton_y.dag())
     else:
         H_bx = Qobj(np.zeros((N, N)))
 
@@ -66,7 +67,7 @@ def simulate_quantum_dot():
     ]
 
     # Define the initial state
-    rho0 = ground_state * ground_state.dag()
+    rho0 = biexciton * biexciton.dag()
 
     # Define time array for the simulation
     t_start = 0
@@ -86,3 +87,15 @@ def simulate_quantum_dot():
 if __name__ == "__main__":
     simulation_result = simulate_quantum_dot()
     print(simulation_result)
+
+    # Plot population trajectories
+    plt.figure(figsize=(10, 6))
+    for i in range(6):
+        plt.plot(simulation_result.times, simulation_result.expect[i], label=f"|{i}>")
+    
+    plt.xlabel("Time (ps)")
+    plt.ylabel("Population")
+    plt.title("Population Trajectories")
+    plt.legend()
+    plt.grid()
+    plt.show()
