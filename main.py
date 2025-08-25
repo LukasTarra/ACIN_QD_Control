@@ -1,5 +1,5 @@
 import numpy as np
-from qutip import *
+from qutip import basis, Qobj, mesolve
 import getparameters as gp
 #from params import Parameters  # Assuming params is defined in a separate file named params.py
 
@@ -72,10 +72,13 @@ def simulate_quantum_dot():
     t_start = 0
     t_end = 1000  # ps
     dt = 0.5      # time step in ps
-    times = np.linspace(t_start, t_end, int((t_end - t_start) / dt))
+    times = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
 
-    # Run the simulation using mesolve
-    result = mesolve(H, rho0, times, collapse_operators, [])
+    # Define population operators for each state
+    population_ops = [basis(N, i) * basis(N, i).dag() for i in range(N)]
+
+    # Run the simulation using mesolve and calculate populations
+    result = mesolve(H, rho0, times, collapse_operators, population_ops)
 
     return result
 
