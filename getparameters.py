@@ -56,6 +56,7 @@ class Parameters:
         self.g_hx           = 0.205 #hole g factor (1)
         self.g_ex           = 0.205 #electron g factor (1)
         self.Gamma_X_inv    = 180 #inverse exciton decay rate (ps)
+        # dark state lifetime set to infinity (no decay)
         self.Gamma_XX_inv   = 120 #inverse biexciton decay rate (ps)
         self.QD_size        = 5 #QD size (nm)
         self.temperature    = 1.5 #QD temperature (K)

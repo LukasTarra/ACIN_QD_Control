@@ -20,7 +20,7 @@ def simulate_quantum_dot():
     g_ez = 0              # Placeholder for electron g factor in z direction
     g_hz = 0              # Placeholder for hole g factor in z direction
     gamma_e = 1/params.Gamma_X_inv  # Exciton decay rate
-    gamma_d = gamma_e     # Assuming same decay rate for dark states
+    gamma_d = 0           # Decay rate for dark states
     gamma_b = 1/params.Gamma_XX_inv # Biexciton decay rate
     temperature = params.temperature
 
@@ -53,7 +53,7 @@ def simulate_quantum_dot():
     else:
         H_bz = Qobj(np.zeros((N, N)))
 
-    # Total Hamiltonian
+    # Total Hamiltonian (without control fields)
     H = H0 + H_bx + H_bz
 
     # Define collapse operators for Lindblad master equation
@@ -90,8 +90,9 @@ if __name__ == "__main__":
 
     # Plot population trajectories
     plt.figure(figsize=(10, 6))
+    state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
     for i in range(6):
-        plt.plot(simulation_result.times, simulation_result.expect[i], label=f"|{i}>")
+        plt.plot(simulation_result.times, simulation_result.expect[i], label=(f"|{i}> = "+state_labels[i]))
     
     plt.xlabel("Time (ps)")
     plt.ylabel("Population")
