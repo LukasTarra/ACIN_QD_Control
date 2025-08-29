@@ -1,12 +1,14 @@
+# import packages
 import numpy as np
 from qutip import basis, Qobj, mesolve
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 
+# user-defined functions & packages
 from getparameters import get_parameters
 
-def simulate_quantum_dot():
+def simulate_dark_states(times,control_input,rho_0_choice,pol_overlaps,params):
     # Load parameters from the params struct
-    params = get_parameters()
     E_X_H = params.E_X_H  # Exciton horizontal energy
     E_X_V = params.E_X_V  # Exciton vertical energy
     E_D_H = params.E_D_H  # Dark exciton horizontal energy
@@ -22,7 +24,7 @@ def simulate_quantum_dot():
     gamma_e = 1/params.Gamma_X_inv  # Exciton decay rate
     gamma_d = 0           # Decay rate for dark states
     gamma_b = 1/params.Gamma_XX_inv # Biexciton decay rate
-    temperature = params.temperature
+    hbar = params.hbar    # Planck constant
 
     # Define the six-level system
 
@@ -35,7 +37,7 @@ def simulate_quantum_dot():
     biexciton = basis(N, 5)
 
     # Define the Hamiltonian terms
-    H0 = E_X_H * exciton_x * exciton_x.dag() + E_X_V * exciton_y * exciton_y.dag() + \
+    H_QD = E_X_H * exciton_x * exciton_x.dag() + E_X_V * exciton_y * exciton_y.dag() + \
          E_D_H * dark_exciton_x * dark_exciton_x.dag() + E_D_V * dark_exciton_y * dark_exciton_y.dag() + \
          E_B * biexciton * biexciton.dag()
 
@@ -54,7 +56,32 @@ def simulate_quantum_dot():
         H_bz = Qobj(np.zeros((N, N)))
 
     # Total Hamiltonian (without control fields)
-    H = H0 + H_bx + H_bz
+    H_0 = H_QD + H_bx + H_bz
+
+    # add control Hamiltonians
+    H_c_H = hbar* (exciton_x*ground_state.dag()+ground_state*exciton_x.dag() + exciton_x*biexciton.dag()+biexciton*exciton_x.dag()) 
+    H_c_V = hbar* (exciton_y*ground_state.dag()+ground_state*exciton_y.dag() + exciton_y*biexciton.dag()+biexciton*exciton_y.dag()) 
+    
+    #add the control input as a function or numpy array
+    if callable(control_input):
+        control_field = control_input
+    elif isinstance(control_input, np.ndarray):
+        control_field = interp1d(times, control_input, kind='linear', fill_value='extrapolate')
+        #control_field = lambda t : control_field_pre(t)
+    else:
+        control_field = lambda t: 0
+        print("Control field's type not supported, set it to 0.")
+
+    pol_H = pol_overlaps["H"]
+    pol_V = pol_overlaps["V"]
+    def control_fun_H(t):
+        return pol_H*control_field(t)
+    def control_fun_V(t):
+        return pol_V*control_field(t)
+    
+    # complete control Hamiltonian and add to static Hamiltonian
+    H = [H_0, [H_c_H,control_fun_H],[H_c_V,control_fun_V]]
+    #H = H_0
 
     # Define collapse operators for Lindblad master equation
     collapse_operators = [
@@ -67,13 +94,19 @@ def simulate_quantum_dot():
     ]
 
     # Define the initial state
-    rho0 = biexciton * biexciton.dag()
-
-    # Define time array for the simulation
-    t_start = 0
-    t_end = 1000  # ps
-    dt = 0.5      # time step in ps
-    times = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
+    match rho_0_choice:
+        case "G":
+            rho0 = ground_state * ground_state.dag()
+        case "X_H":
+            rho0 = exciton_x * exciton_x.dag()
+        case "X_V":
+            rho0 = exciton_y * exciton_y.dag()
+        case "D_H":
+            rho0 = dark_exciton_x * dark_exciton_x.dag()
+        case "D_V":
+            rho0 = dark_exciton_y * dark_exciton_y.dag()
+        case "B":
+            rho0 = biexciton * biexciton.dag()
 
     # Define population operators for each state
     population_ops = [basis(N, i) * basis(N, i).dag() for i in range(N)]
@@ -85,7 +118,26 @@ def simulate_quantum_dot():
 
 # Example usage
 if __name__ == "__main__":
-    simulation_result = simulate_quantum_dot()
+
+    #load parameters
+    par_QD = get_parameters()
+    #polarization overlaps (e_H * e_L, e_V * e_L)
+    polarization_overlaps = {"H": 1, "V":0}
+    #choose initial state (G, X_H, X_V, D_H, D_V, B)
+    init_state = "B"
+
+    # Define time array for the simulation
+    t_start = 0
+    t_end = 1000  # ps
+    dt = 0.1      # time step in ps
+    t_array = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
+
+    #define control input
+    control_FF = lambda t: 10*np.sin(2*np.pi*t*1e-2)
+    control_FF = lambda t: 100*np.exp(-t)
+    #control_FF = 1e-12*np.sin(2*np.pi*t_array*1e-3)
+
+    simulation_result = simulate_dark_states(t_array,control_FF,init_state,polarization_overlaps,par_QD)
     print(simulation_result)
 
     # Plot population trajectories
@@ -100,3 +152,7 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid()
     plt.show()
+
+    # plt.figure()
+    # plt.plot(t_array,control_FF/np.max(control_FF) )
+    # plt.show()
