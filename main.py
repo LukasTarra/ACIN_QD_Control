@@ -118,7 +118,42 @@ def simulate_dark_states(times,control_input,rho_0_choice,pol_overlaps,params):
 
     return result
 
-# Example usage
+
+def plot_results_and_control(results,control_fun,t_array):
+
+     # Plot population trajectories
+    plt.figure(figsize=(10, 6))
+    state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
+    for i in range(6):
+        plt.plot(results.times, results.expect[i], label=(f"|{i}> = "+state_labels[i]))
+    
+    plt.xlabel("Time (ps)")
+    plt.ylabel("Population")
+    plt.title("Population Trajectories")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+    # visualize the control field
+    control_FF_array = control_fun(t_array)
+    plt.figure()
+    plt.plot(t_array,control_FF_array )
+    plt.xlabel("Time (ps)")
+    plt.ylabel("Control Field (meV)")
+    plt.title("Control Field")
+    plt.show()
+
+    control_FF_FFT = np.fft.fft(control_FF_array)
+    control_FF_FFT = np.abs(control_FF_FFT)
+    control_FF_FFT = control_FF_FFT[:len(control_FF_FFT)//2]
+    plt.figure()
+    plt.plot(control_FF_FFT)
+    plt.xlabel("Frequency")
+    plt.ylabel("Amplitude")
+    plt.title("Control Field FFT")
+    plt.show()
+
+
 if __name__ == "__main__":
 
     #load parameters
@@ -141,28 +176,12 @@ if __name__ == "__main__":
 
     simulation_result = simulate_dark_states(t_array,control_FF,init_state,polarization_overlaps,par_QD)
     print(simulation_result)
+     
+    # visualize the results, control field and control field in frequency domain
+    plot_results_and_control(simulation_result,control_FF,t_array)
 
-    # Plot population trajectories
-    plt.figure(figsize=(10, 6))
-    state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
-    for i in range(6):
-        plt.plot(simulation_result.times, simulation_result.expect[i], label=(f"|{i}> = "+state_labels[i]))
-    
-    plt.xlabel("Time (ps)")
-    plt.ylabel("Population")
-    plt.title("Population Trajectories")
-    plt.legend()
-    plt.grid()
-    plt.show()
 
-    # visualize the control field
-    control_FF_array = control_FF(t_array)
-    plt.figure()
-    plt.plot(t_array,control_FF_array )
-    plt.xlabel("Time (ps)")
-    plt.ylabel("Control Field (meV)")
-    plt.title("Control Field")
-    plt.show()
-    
-    # visualize the control field in frequency domain   
-    control_FF_FFT = 
+
+
+
+
