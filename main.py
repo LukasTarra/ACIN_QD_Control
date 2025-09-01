@@ -2,7 +2,7 @@
 import numpy as np
 from qutip import basis, Qobj, mesolve
 import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
+# from scipy.interpolate import interp1d
 
 # user-defined functions & packages
 from getparameters import get_parameters
@@ -58,29 +58,31 @@ def simulate_dark_states(times,control_input,rho_0_choice,pol_overlaps,params):
     # Total Hamiltonian (without control fields)
     H_0 = H_QD + H_bx + H_bz
 
-    # add control Hamiltonians
-    H_c_H = hbar* (exciton_x*ground_state.dag()+ground_state*exciton_x.dag() + exciton_x*biexciton.dag()+biexciton*exciton_x.dag()) 
-    H_c_V = hbar* (exciton_y*ground_state.dag()+ground_state*exciton_y.dag() + exciton_y*biexciton.dag()+biexciton*exciton_y.dag()) 
-    
+    # add control Hamiltonians (factor for polarization overlap included)
+    H_c_H = pol_overlaps["H"]* hbar* (exciton_x*ground_state.dag()+ground_state*exciton_x.dag() + exciton_x*biexciton.dag()+biexciton*exciton_x.dag()) 
+    H_c_V = pol_overlaps["V"]* hbar* (exciton_y*ground_state.dag()+ground_state*exciton_y.dag() + exciton_y*biexciton.dag()+biexciton*exciton_y.dag()) 
+    H_c = H_c_H + H_c_V
+
     #add the control input as a function or numpy array
     if callable(control_input):
         control_field = control_input
     elif isinstance(control_input, np.ndarray):
-        control_field = interp1d(times, control_input, kind='linear', fill_value='extrapolate')
+        control_field = lambda t: np.interp(t, times, control_input)
+        # control_field = interp1d(times, control_input, kind='linear', fill_value='extrapolate')
         #control_field = lambda t : control_field_pre(t)
     else:
         control_field = lambda t: 0
         print("Control field's type not supported, set it to 0.")
 
-    pol_H = pol_overlaps["H"]
-    pol_V = pol_overlaps["V"]
-    def control_fun_H(t):
-        return pol_H*control_field(t)
-    def control_fun_V(t):
-        return pol_V*control_field(t)
+    # pol_H = pol_overlaps["H"]
+    # pol_V = pol_overlaps["V"]
+    # def control_fun_H(t):
+    #     return pol_H*control_field(t)
+    # def control_fun_V(t):
+    #     return pol_V*control_field(t)
     
     # complete control Hamiltonian and add to static Hamiltonian
-    H = [H_0, [H_c_H,control_fun_H],[H_c_V,control_fun_V]]
+    H = [H_0, [H_c,control_field]]
     #H = H_0
 
     # Define collapse operators for Lindblad master equation
@@ -133,8 +135,8 @@ if __name__ == "__main__":
     t_array = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
 
     #define control input
-    control_FF = lambda t: 10*np.sin(2*np.pi*t*1e-2)
-    control_FF = lambda t: 100*np.exp(-t)
+    # control_FF = lambda t: 10*np.sin(2*np.pi*t*1e-2)
+    control_FF = lambda t: 100*np.exp(-t/4)*np.sin(2*np.pi*t)
     #control_FF = 1e-12*np.sin(2*np.pi*t_array*1e-3)
 
     simulation_result = simulate_dark_states(t_array,control_FF,init_state,polarization_overlaps,par_QD)
@@ -153,6 +155,14 @@ if __name__ == "__main__":
     plt.grid()
     plt.show()
 
-    # plt.figure()
-    # plt.plot(t_array,control_FF/np.max(control_FF) )
-    # plt.show()
+    # visualize the control field
+    control_FF_array = control_FF(t_array)
+    plt.figure()
+    plt.plot(t_array,control_FF_array )
+    plt.xlabel("Time (ps)")
+    plt.ylabel("Control Field (meV)")
+    plt.title("Control Field")
+    plt.show()
+    
+    # visualize the control field in frequency domain   
+    control_FF_FFT = 
