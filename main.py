@@ -71,18 +71,21 @@ def create_population_operators(N):
 
 
 def create_collapse_operators(ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton, params):
-    gamma_e = 1/params.Gamma_X_inv  # Exciton decay rate
-    gamma_d = 0           # Decay rate for dark states
-    gamma_b = 1/params.Gamma_XX_inv # Biexciton decay rate
+    # Define decay rates for each state
+    exciton_decay_rate = 1 / params.Gamma_X_inv  # Exciton decay rate
+    dark_state_decay_rate = 0  # Decay rate for dark states
+    biexciton_decay_rate = 1 / params.Gamma_XX_inv  # Biexciton decay rate
 
-    return [
-        np.sqrt(gamma_e) * (ground_state * exciton_x.dag()),
-        np.sqrt(gamma_e) * (ground_state * exciton_y.dag()),
-        np.sqrt(gamma_b) * (exciton_x * biexciton.dag()),
-        np.sqrt(gamma_b) * (exciton_y * biexciton.dag()),
-        np.sqrt(gamma_d) * (ground_state * dark_exciton_x.dag()),
-        np.sqrt(gamma_d) * (ground_state * dark_exciton_y.dag())
+    # Create collapse operators with their respective decay rates
+    collapse_ops = [
+        np.sqrt(exciton_decay_rate) * (ground_state * exciton_x.dag()),
+        np.sqrt(exciton_decay_rate) * (ground_state * exciton_y.dag()),
+        np.sqrt(biexciton_decay_rate) * (exciton_x * biexciton.dag()),
+        np.sqrt(biexciton_decay_rate) * (exciton_y * biexciton.dag()),
+        np.sqrt(dark_state_decay_rate) * (ground_state * dark_exciton_x.dag()),
+        np.sqrt(dark_state_decay_rate) * (ground_state * dark_exciton_y.dag())
     ]
+    return collapse_ops
 
 
 def create_initial_state(rho_0_choice, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton):
