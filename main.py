@@ -187,6 +187,76 @@ def plot_results_and_control(results, control_fun, t_array):
     plot_control_field(control_fun, t_array)
     plot_control_field_fft(control_fun, t_array)
 
+# set up a results class for diagnostics
+class Results:
+    def __init__(self, sim_result, params, control_field=None):
+        self.times = sim_result.times
+        self.populations = sim_result.expect
+        self.params = params
+        self.control_field = control_field
+
+    def get_populations(self):
+        return self.populations
+    def get_control_field(self):
+        return self.control_field
+    def get_times(self):
+        return self.times
+    def get_params(self):
+        return self.params
+
+    def get_population_at_time(self, time_index):
+        """Get population of all states at a specific time index."""
+        if time_index < 0 or time_index >= len(self.times):
+            raise ValueError("Time index out of range")
+        return self.populations[time_index]
+    def get_state_population(self, state_index):
+        """Get population trajectory for a specific state."""
+        if state_index < 0 or state_index >= len(self.populations[0]):
+            raise ValueError("State index out of range")
+        return [p[state_index] for p in self.populations]
+    def get_final_populations(self):
+        """Get the population of all states at the final time."""
+        return self.populations[-1]
+    def get_max_population(self, state_index):
+        """Get the maximum population reached by a specific state."""
+        state_pop = self.get_state_population(state_index)
+        return max(state_pop)
+    def calculate_fidelity(self, target_state):
+        """Calculate fidelity with respect to a target state at the final time."""
+        final_pop = self.get_final_populations()
+        return final_pop[target_state]
+    def calculate_purity(self):
+        """Calculate purity of the system over time (trace of rho^2)."""
+        purity = []
+        for pop_matrix in self.populations:
+            # For diagonal density matrix elements, purity is sum of squares
+            purity.append(sum(p**2 for p in pop_matrix))
+        return purity
+    def save_to_file(self, filename):
+        """Save results to a file for later analysis."""
+        data = {
+            'times': self.times,
+            'populations': self.populations,
+            'params': self.params.__dict__ if hasattr(self.params, '__dict__') else self.params,
+            'control_field': self.control_field(self.times) if callable(self.control_field) else None
+        }
+        np.savez(filename, **data)
+    def plot_state_populations(self, state_indices=None):
+        """Plot population trajectories for specified states or all states."""
+        plt.figure(figsize=(10, 6))
+        state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
+        if state_indices is None:
+            state_indices = range(len(self.populations[0]))
+        for i in state_indices:
+            plt.plot(self.times, self.get_state_population(i), label=state_labels[i])
+        plt.xlabel("Time (ps)")
+        plt.ylabel("Population")
+        plt.title("Population Trajectories")
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+
 if __name__ == "__main__":
     # Load parameters
     par_QD = get_parameters()
