@@ -80,10 +80,10 @@ def create_collapse_operators(ground_state, exciton_x, exciton_y, dark_exciton_x
     collapse_ops = [
         np.sqrt(exciton_decay_rate) * (ground_state * exciton_x.dag()),
         np.sqrt(exciton_decay_rate) * (ground_state * exciton_y.dag()),
-        np.sqrt(biexciton_decay_rate) * (exciton_x * biexciton.dag()),
-        np.sqrt(biexciton_decay_rate) * (exciton_y * biexciton.dag()),
         np.sqrt(dark_state_decay_rate) * (ground_state * dark_exciton_x.dag()),
-        np.sqrt(dark_state_decay_rate) * (ground_state * dark_exciton_y.dag())
+        np.sqrt(dark_state_decay_rate) * (ground_state * dark_exciton_y.dag()),
+        np.sqrt(biexciton_decay_rate) * (exciton_x * biexciton.dag()),
+        np.sqrt(biexciton_decay_rate) * (exciton_y * biexciton.dag())
     ]
     return collapse_ops
 
