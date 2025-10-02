@@ -113,12 +113,12 @@ def simulate_dark_states(times, control_input, rho_0_choice, pol_overlaps, param
     H_QD, H_bx, H_bz, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton = create_hamiltonian_terms(params)
 
     # Total Hamiltonian (without control fields)
-    H_0 = H_QD + H_bx + H_bz
+    H_0 = (H_QD + H_bx + H_bz) / params.hbar  # Normalize by hbar
 
     # Add control Hamiltonians (factor for polarization overlap included)
     H_c_H = pol_overlaps["H"] * params.hbar * (exciton_x * ground_state.dag() + ground_state * exciton_x.dag() + exciton_x * biexciton.dag() + biexciton * exciton_x.dag())
     H_c_V = pol_overlaps["V"] * params.hbar * (exciton_y * ground_state.dag() + ground_state * exciton_y.dag() + exciton_y * biexciton.dag() + biexciton * exciton_y.dag())
-    H_c = H_c_H + H_c_V
+    H_c = (H_c_H + H_c_V) / params.hbar # Normalize by hbar
 
     # Create control field
     control_field = create_control_field(times, control_input)
@@ -143,7 +143,7 @@ def simulate_dark_states(times, control_input, rho_0_choice, pol_overlaps, param
     rho0 = create_initial_state(rho_0_choice, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton)
 
     # Run the simulation using mesolve and calculate populations
-    result = mesolve(H, rho0, times, collapse_operators, population_ops)
+    result = mesolve(H , rho0, times, collapse_operators, population_ops)
 
     return result
 

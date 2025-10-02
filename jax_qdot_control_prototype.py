@@ -2,10 +2,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
-from jax import jit, vmap, block_until_ready
+from jax import jit, vmap
+import jax.debug as jdebug
 from jax.lax import scan
 from jax.scipy.optimize import minimize
 from getparameters import get_parameters
+from tqdm import tqdm # progress bar
+
+# broader shell output before linebreaks for debugging 
+np.set_printoptions(linewidth=300, edgeitems=10)
 
 """#might is the keyword for todos"""
 
@@ -170,17 +175,44 @@ def complex_to_real_block(M: np.ndarray) -> np.ndarray:
     M_imag = M.imag
     return np.block([[M_real, -M_imag], [M_imag, M_real]])
 
-def plot_population_trajectories(results):
-    plt.figure(figsize=(10, 6))
+def plot_population_trajectories(all_trajs):
+    # Convert all_trajs to numpy array for easier manipulation
+    all_trajs_np = np.array(all_trajs)
+    # Calculate mean trajectory
+    traj_mean = np.mean(all_trajs_np[:, :, :, 0], axis=0)
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+    # Plot mean trajectories
     state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
     for i in range(N_STATES):
-        plt.plot(results.times, results.expect[i], label=(f"|{i}> = " + state_labels[i]))
+        ax1.plot(t_array, traj_mean[:, i]**2 + traj_mean[:, i + N_STATES]**2,
+                label=(f"|{i}> = " + state_labels[i]))
+    ax1.set_xlabel("Time (ps)")
+    ax1.set_ylabel("Population")
+    ax1.set_title("Mean Population Trajectories")
+    ax1.legend()
+    ax1.grid()
 
-    plt.xlabel("Time (ps)")
-    plt.ylabel("Population")
-    plt.title("Population Trajectories")
-    plt.legend()
-    plt.grid()
+    # Plot individual trajectories for each state
+    colors = plt.cm.viridis(np.linspace(0, 1, N_STATES))
+    for i in range(N_STATES):
+        # Extract trajectories for this state
+        state_trajs = all_trajs_np[:, :, i, 0]**2 + all_trajs_np[:, :, i + N_STATES, 0]**2
+        # Randomly select 20 trajectories to plot
+        selected_indices = np.random.choice(state_trajs.shape[0], size=20, replace=False)
+        selected_trajs = state_trajs[selected_indices]
+        # Plot each selected trajectory with the same color
+        for traj in selected_trajs:
+            ax2.plot(t_array, traj, color=colors[i], alpha=0.1)
+        # Plot mean trajectory for this state
+        ax2.plot(t_array, traj_mean[:, i]**2 + traj_mean[:, i + N_STATES]**2,
+                color=colors[i], linewidth=2, label=(f"|{i}> = " + state_labels[i]))
+    ax2.set_xlabel("Time (ps)")
+    ax2.set_ylabel("Population")
+    ax2.set_title("Individual Population Trajectories")
+    ax2.legend()
+    ax2.grid()
+    plt.tight_layout()
     plt.show()
 
 def plot_control_field(control_FF, t_array):
@@ -214,10 +246,10 @@ def plot_control_field_fft(control_FF, t_array):
     plt.title("Control Field FFT")
     plt.show()
 
-def create_jax_noise_traj_arrays(number_trajectories_opt, number_steps, dt):
+def create_jax_noise_traj_arrays(number_trajectories, number_steps, dt):
     # Erzeuge feste Rauschpfade für die Optimierung (reproduzierbar)
-    dW_real_opt_val = RNG.normal(size=(number_trajectories_opt, number_steps)) * np.sqrt(dt)
-    dW_imag_opt_val = RNG.normal(size=(number_trajectories_opt, number_steps)) * np.sqrt(dt)
+    dW_real_opt_val = RNG.normal(size=(number_trajectories, number_steps)) * np.sqrt(dt)
+    dW_imag_opt_val = RNG.normal(size=(number_trajectories, number_steps)) * np.sqrt(dt)
     # Konvertiere zu JAX
     dW_real_opt_j = jnp.array(dW_real_opt_val)
     dW_imag_opt_j = jnp.array(dW_imag_opt_val)
@@ -234,11 +266,11 @@ def jax_sim_setup(psi_0_choice,psi_T_choice,pol_overlaps,params):
     # Create Hamiltonian terms
     H_QD, H_bx, H_bz, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton = create_QD_hamiltonian_terms_and_states(params)
     # Total Hamiltonian (without control fields)
-    H_0 = H_QD + H_bx + H_bz
+    H_0 = (H_QD + H_bx + H_bz) / params.hbar 
     # Add control Hamiltonians (factor for polarization overlap included)
     H_c_H = pol_overlaps["H"] * params.hbar * (exciton_x @ ground_state.conj().T + ground_state @ exciton_x.conj().T + exciton_x @ biexciton.conj().T + biexciton @ exciton_x.conj().T)
     H_c_V = pol_overlaps["V"] * params.hbar * (exciton_y @ ground_state.conj().T + ground_state @ exciton_y.conj().T + exciton_y @ biexciton.conj().T + biexciton @ exciton_y.conj().T)
-    H_control = H_c_H + H_c_V
+    H_control = (H_c_H + H_c_V) / params.hbar
     # Create collapse operators
     L_operators = create_collapse_operators(ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton, params)
     LdagL_operators = [L.conj().T @ L for L in L_operators]
@@ -273,37 +305,6 @@ def normalize_psi(psi):
     norm = jnp.linalg.norm(psi)
     return psi / (norm + regularization)
 
-# @jit
-# def em_step(psi, dW_real, dW_imag, u, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j):
-#     # number of collapse operators
-#     N_collapse_operators = len(L_operators_j)
-    
-#     # Normalize input
-#     psi_n = normalize_psi(psi)
-#     H_total = H_0_j + u * H_control_j
-
-#     # 1. Deterministic drift part (Drift-Term)
-#     def f_drift(p):
-#         L_avg_j = [p.conj().T @ (L_operators_j[i] @ p) for i in range(N_collapse_operators)]
-#         return -(I_imag_j/HBAR) @ (H_total @ p) - 0.5* sum([ LdagL_operators_j[i]@ p -2* L_avg_j[i]*L_operators_j[i] @ p + L_avg_j[i]**2 * p for i in range(len(LdagL_operators_j)) ])
-#     # Midpoint-Methode (RK2) für den Drift
-#     k1 = f_drift(psi_n)
-#     drift = f_drift(psi_n + 0.5 * dt * k1) # This is the slope at the midpoint
-
-#     # 2. Stochastic diffusion part (Diffusion-Term)
-#     L_psi = [ L_operators_j[i] @ psi_n for i in range(N_collapse_operators) ]
-#     avg_L = [ psi_n.conj().T @ L_psi[i] for i in range(N_collapse_operators)]
-#     diffusion_base = [ L_psi[i] - avg_L[i] * psi_n for i in range(N_collapse_operators) ]
-#     # # correct implementation with different dWs # might restore this
-#     # diffusion = sum([ diffusion_base[i] * dW_real[i] + (I_imag_j @ diffusion_base[i]) * dW_imag[i] for i in range(len(diffusion_base)) ])
-#     #test implementation with same dWs
-#     diffusion = sum([ diffusion_base[i] * dW_real + (I_imag_j @ diffusion_base[i]) * dW_imag for i in range(N_collapse_operators) ])
-
-#     # Combine using Euler-Maruyama for the full SDE
-#     psi_next = psi_n + drift * dt + diffusion
-#     psi_next = normalize_psi(psi_next)
-#     return psi_next
-
 @jit
 def em_step(psi, dW_real, dW_imag, u, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j):
     # Normalize input
@@ -311,27 +312,43 @@ def em_step(psi, dW_real, dW_imag, u, dt, H_0_j, H_control_j, L_operators_j, Lda
     H_total = H_0_j + u * H_control_j
 
     # 1. Deterministic drift part (vectorized)
+    # def f_drift(p):
+    #      # Vectorized expectation values: <L_i> = psi_dag @ L_i @ psi
+    #      L_unitary_psi = 0.5* jnp.sum((L_operators_j + L_operators_j.conj().transpose(0,2,1)) * p, axis=(1,2))  # Shape: (N_collapse, dim, 1)
+    #      L_unitary_avg = jnp.sum(p.conj().T * L_unitary_psi, axis=(1,2))  # Shape: (N_collapse,)
+    #      # Vectorized drift calculation
+    #      LdagL_psi = jnp.sum(LdagL_operators_j * p, axis=(1,2))  # Shape: (N_collapse, dim, 1)
+    #      term1 = -0.5 * jnp.sum(LdagL_psi, axis=0)  # Sum over collapse operators
+    #      L_psi = jnp.sum(L_operators_j * p, axis=(1,2))
+    #      term2 = jnp.sum(L_unitary_avg[:, None, None] * L_psi, axis=0)
+    #      term3 = -0.5 * jnp.sum(L_unitary_avg[:, None, None]**2 * p, axis=0)
+        
+    #      return -(I_imag_j/HBAR) @ (H_total @ p) + term1 + term2 + term3
+    
     def f_drift(p):
          # Vectorized expectation values: <L_i> = psi_dag @ L_i @ psi
-         L_psi = L_operators_j @ p  # Shape: (N_collapse, dim, 1)
-         L_avg = jnp.sum(p.conj().T * L_psi, axis=(1,2))  # Shape: (N_collapse,)
-        
+         L_unitary_psi = 0.5* (L_operators_j + L_operators_j.conj().transpose(0,2,1)) @ p  # Shape: (N_collapse, dim, 1)
+         L_unitary_avg = p.conj().T @ L_unitary_psi  # Shape: (N_collapse,1,1)
          # Vectorized drift calculation
-         LdagL_psi = LdagL_operators_j @ p  # Shape: (N_collapse, dim, 1)
+         LdagL_psi = LdagL_operators_j @ p # Shape: (N_collapse, dim, 1)
          term1 = -0.5 * jnp.sum(LdagL_psi, axis=0)  # Sum over collapse operators
-         term2 = jnp.sum(L_avg[:, None, None] * L_operators_j @ p, axis=0)
-         term3 = -0.5 * jnp.sum(L_avg[:, None, None]**2 * p, axis=0)
+         L_psi = L_operators_j @ p
+         term2 = jnp.sum(L_unitary_avg * L_psi, axis=0)
+        #  LdagL_avg = p.conj().T @ LdagL_psi
+        #  term3 = -0.5 * jnp.sum(LdagL_avg * p, axis=0)
+         term3 = -0.5 * jnp.sum(L_unitary_avg**2 * p, axis=0)
         
-         return -(I_imag_j/HBAR) @ (H_total @ p) + term1 + term2 + term3
-    
+         return -I_imag_j @ (H_total @ p) * 1e-3 + term1 + term2 + term3
+
     # Midpoint method (RK2) for drift
     k1 = f_drift(psi_n)
     drift = f_drift(psi_n + 0.5 * dt * k1)
 
     # 2. Stochastic diffusion part (vectorized)
-    L_psi = L_operators_j @ psi_n  # Shape: (N_collapse, dim, 1)
-    L_avg = jnp.sum(psi_n.conj().T * L_psi, axis=(1,2))  # Shape: (N_collapse,)
-    diffusion_base = L_psi - L_avg[:, None, None] * psi_n  # Shape: (N_collapse, dim, 1)
+    L_unitary_psi = 0.5* (L_operators_j + L_operators_j.conj().transpose(0,2,1)) @ psi_n  # Shape: (N_collapse, dim, 1)
+    L_unitary_avg = psi_n.conj().T @ L_unitary_psi  # Shape: (N_collapse,1,1)
+    L_psi = L_operators_j @ psi_n
+    diffusion_base = L_psi - L_unitary_avg * psi_n  # Shape: (N_collapse, dim, 1)
     # # Use the correct implementation with different dWs (more accurate)
     # diffusion = jnp.sum(
     #     diffusion_base * dW_real[:, None, None] + 
@@ -359,7 +376,7 @@ def simulate_single_traj(u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt, H_0_j,
     inputs = (dW_real_traj, dW_imag_traj, u_traj)
     final_state, traj = scan(step_fn, psi_0_j, inputs)
     
-    return jnp.concatenate([psi_0_j[None], traj])
+    return traj
 
 # vmap over trajectories
 sim_forward_vmap = vmap(simulate_single_traj, in_axes=(None, 0, 0, None, None, None, None, None, None, None), out_axes=0)
@@ -413,11 +430,12 @@ if __name__ == "__main__":
     # Define time array for the simulation
     t_start = 0
     t_end = 1000  # ps
-    dt = 0.05      # time step in ps
+    dt = 0.01      # time step in ps
     t_array = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
 
     # Define control input guess
-    control_FF_guess = lambda t: 1000 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
+    # control_FF_guess = lambda t: 1000 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
+    control_FF_guess = lambda t: 0*t
     control_FF_guess_array = control_FF_guess(t_array)
     # control_FF_guess_array = np.zeros(len(t_array))
     plot_control_field(control_FF_guess, t_array)
@@ -433,10 +451,6 @@ if __name__ == "__main__":
     # simulate the system with the guess
     dW_real_opt_j, dW_imag_opt_j = create_jax_noise_traj_arrays(number_trajectories_sim, len(t_array), dt)
     all_trajs = sim_forward_vmap(control_FF_guess_array, dW_real_opt_j, dW_imag_opt_j, psi_0_j, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j)
-    traj_mean = jnp.mean(all_trajs[:,:,:,0],axis=0)
-    traj_mean = np.array(traj_mean)
-    print(traj_mean[:10,:])
-    # plt.plot(sum([ traj_mean[:, i]**2 for i in range(traj_mean.shape[1]) ]))
-    plt.plot(traj_mean[:, 5]**2 + traj_mean[:, 11]**2  )
-    plt.show()
-
+    
+    # plot population trajectories
+    plot_population_trajectories(all_trajs)
