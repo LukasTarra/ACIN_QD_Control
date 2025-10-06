@@ -180,6 +180,8 @@ def plot_population_trajectories(all_trajs):
     all_trajs_np = np.array(all_trajs)
     # Calculate mean trajectory
     traj_mean = np.mean(all_trajs_np[:, :, :, 0], axis=0)
+    normalization_factors = np.sqrt(np.sum(traj_mean**2, axis=2, keepdims=True))
+    traj_mean = traj_mean / normalization_factors
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
     # Plot mean trajectories
