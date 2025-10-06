@@ -1,6 +1,8 @@
 # import packages
-import numpy as np
-from qutip import basis, Qobj, mesolve
+# import numpy as np
+import jax.numpy as jnp
+import dynamiqs as dq
+# from qutip import basis, Qobj, mesolve
 import matplotlib.pyplot as plt
 
 # user-defined functions & packages
@@ -22,33 +24,35 @@ def create_hamiltonian_terms(params):
     g_hz = 0              # Placeholder for hole g factor in z direction
     hbar = params.hbar    # Planck constant
 
-    # Define the six-level system
+    # Define the six-level system (basis state density matrices)
     N = 6  # Number of states
-    ground_state = basis(N, 0)
-    exciton_x = basis(N, 1)
-    exciton_y = basis(N, 2)
-    dark_exciton_x = basis(N, 3)
-    dark_exciton_y = basis(N, 4)
-    biexciton = basis(N, 5)
+    ground_state    = dq.fock(N, 0)
+    exciton_x       = dq.fock(N, 1)
+    exciton_y       = dq.fock(N, 2)
+    dark_exciton_x  = dq.fock(N, 3)
+    dark_exciton_y  = dq.fock(N, 4)
+    biexciton       = dq.fock(N, 5)
 
     # Define the Hamiltonian terms
-    H_QD = E_X_H * exciton_x * exciton_x.dag() + E_X_V * exciton_y * exciton_y.dag() + \
-         E_D_H * dark_exciton_x * dark_exciton_x.dag() + E_D_V * dark_exciton_y * dark_exciton_y.dag() + \
-         E_B * biexciton * biexciton.dag()
+    H_QD: dq.QArray = E_X_H * exciton_x @ exciton_x.dag() + E_X_V * exciton_y @ exciton_y.dag() + \
+         E_D_H * dark_exciton_x @ dark_exciton_x.dag() + E_D_V * dark_exciton_y @ dark_exciton_y.dag() + \
+         E_B * biexciton @ biexciton.dag()
 
     # Bright-dark coupling depending on Bx
     if bx != 0:
-        H_bx = -0.5 * mu_b * bx * (g_hx + g_ex) * (exciton_x * dark_exciton_x.dag() + dark_exciton_x * exciton_x.dag()) + \
-              -0.5 * mu_b * bx * (g_hx - g_ex) * (exciton_y * dark_exciton_y.dag() + dark_exciton_y * exciton_y.dag())
+        H_bx = -0.5 * mu_b * bx * (g_hx + g_ex) * (exciton_x @ dark_exciton_x.dag() + dark_exciton_x @ exciton_x.dag()) + \
+              -0.5 * mu_b * bx * (g_hx - g_ex) * (exciton_y @ dark_exciton_y.dag() + dark_exciton_y @ exciton_y.dag())
     else:
-        H_bx = Qobj(np.zeros((N, N)))
+        print("No magnetic field in x direction applied.")
+        H_bx = dq.asqarray(jnp.zeros((N, N)))
 
     # Bright-bright and dark-dark coupling depending on Bz
     if bz != 0.0:
-        H_bz = 1j * 0.5 * mu_b * bz * (g_ez - 3 * g_hz) * (exciton_x * exciton_y.dag() - exciton_y * exciton_x.dag()) + \
-              1j * -0.5 * mu_b * bz * (g_ez + 3 * g_hz) * (dark_exciton_x * dark_exciton_y.dag() - dark_exciton_y * dark_exciton_x.dag())
+        H_bz = 1j * 0.5 * mu_b * bz * (g_ez - 3 * g_hz) * (exciton_x @ exciton_y.dag() - exciton_y @ exciton_x.dag()) + \
+              1j * -0.5 * mu_b * bz * (g_ez + 3 * g_hz) * (dark_exciton_x @ dark_exciton_y.dag() - dark_exciton_y @ dark_exciton_x.dag())
     else:
-        H_bz = Qobj(np.zeros((N, N)))
+        print("No magnetic field in z direction applied.")
+        H_bz = dq.asqarray(jnp.zeros((N, N)))
 
     return H_QD, H_bx, H_bz, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton
 
@@ -57,17 +61,17 @@ def create_control_field(times, control_input):
     zero_function = lambda t: 0
     if callable(control_input):
         control_field = control_input
-    elif isinstance(control_input, np.ndarray):
-        control_field = lambda t: np.interp(t, times, control_input)
+    elif isinstance(control_input, jnp.ndarray):
+        control_field = lambda t: jnp.interp(t, times, control_input)
     else:
         control_field = zero_function
-        print("Control field's type not supported, set it to 0.")
+        print("Control field's type not supported (callable or ), set it to 0.")
 
     return control_field
 
 
 def create_population_operators(N):
-    return [basis(N, i) * basis(N, i).dag() for i in range(N)]
+    return [dq.fock(N, i) @ dq.fock(N, i).dag() for i in range(N)]
 
 
 def create_collapse_operators(ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton, params):
@@ -77,13 +81,13 @@ def create_collapse_operators(ground_state, exciton_x, exciton_y, dark_exciton_x
     biexciton_decay_rate = 1 / params.Gamma_XX_inv  # Biexciton decay rate
 
     # Create collapse operators with their respective decay rates
-    collapse_ops = [
-        np.sqrt(exciton_decay_rate) * (ground_state * exciton_x.dag()),
-        np.sqrt(exciton_decay_rate) * (ground_state * exciton_y.dag()),
-        np.sqrt(dark_state_decay_rate) * (ground_state * dark_exciton_x.dag()),
-        np.sqrt(dark_state_decay_rate) * (ground_state * dark_exciton_y.dag()),
-        np.sqrt(biexciton_decay_rate) * (exciton_x * biexciton.dag()),
-        np.sqrt(biexciton_decay_rate) * (exciton_y * biexciton.dag())
+    collapse_ops: list[dq.QArray] = [
+        jnp.sqrt(exciton_decay_rate) * (ground_state @ exciton_x.dag()),
+        jnp.sqrt(exciton_decay_rate) * (ground_state @ exciton_y.dag()),
+        jnp.sqrt(dark_state_decay_rate) * (ground_state @ dark_exciton_x.dag()),
+        jnp.sqrt(dark_state_decay_rate) * (ground_state @ dark_exciton_y.dag()),
+        jnp.sqrt(biexciton_decay_rate) * (exciton_x @ biexciton.dag()),
+        jnp.sqrt(biexciton_decay_rate) * (exciton_y @ biexciton.dag())
     ]
     return collapse_ops
 
@@ -91,19 +95,19 @@ def create_collapse_operators(ground_state, exciton_x, exciton_y, dark_exciton_x
 def create_initial_state(rho_0_choice, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton):
     match rho_0_choice:
         case "G":
-            rho0 = ground_state * ground_state.dag()
+            rho0 = ground_state @ ground_state.dag()
         case "X_H":
-            rho0 = exciton_x * exciton_x.dag()
+            rho0 = exciton_x @ exciton_x.dag()
         case "X_V":
-            rho0 = exciton_y * exciton_y.dag()
+            rho0 = exciton_y @ exciton_y.dag()
         case "D_H":
-            rho0 = dark_exciton_x * dark_exciton_x.dag()
+            rho0 = dark_exciton_x @ dark_exciton_x.dag()
         case "D_V":
-            rho0 = dark_exciton_y * dark_exciton_y.dag()
+            rho0 = dark_exciton_y @ dark_exciton_y.dag()
         case "B":
-            rho0 = biexciton * biexciton.dag()
+            rho0 = biexciton @ biexciton.dag()
 
-    print("The chosen ground state is: ", rho_0_choice)
+    print("The chosen initial state is: ", rho_0_choice)
 
     return rho0
 
@@ -113,11 +117,11 @@ def simulate_dark_states(times, control_input, rho_0_choice, pol_overlaps, param
     H_QD, H_bx, H_bz, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton = create_hamiltonian_terms(params)
 
     # Total Hamiltonian (without control fields)
-    H_0 = (H_QD + H_bx + H_bz) / params.hbar / 1  # Normalize by hbar
+    H_0 = (H_QD + H_bx + H_bz) / params.hbar / 1 # Normalize by hbar
 
     # Add control Hamiltonians (factor for polarization overlap included)
-    H_c_H = pol_overlaps["H"] * params.hbar * (exciton_x * ground_state.dag() + ground_state * exciton_x.dag() + exciton_x * biexciton.dag() + biexciton * exciton_x.dag())
-    H_c_V = pol_overlaps["V"] * params.hbar * (exciton_y * ground_state.dag() + ground_state * exciton_y.dag() + exciton_y * biexciton.dag() + biexciton * exciton_y.dag())
+    H_c_H: dq.QArray = pol_overlaps["H"] * params.hbar * (exciton_x @ ground_state.dag() + ground_state @ exciton_x.dag() + exciton_x @ biexciton.dag() + biexciton @ exciton_x.dag())
+    H_c_V: dq.QArray = pol_overlaps["V"] * params.hbar * (exciton_y @ ground_state.dag() + ground_state @ exciton_y.dag() + exciton_y @ biexciton.dag() + biexciton @ exciton_y.dag())
     H_c = (H_c_H + H_c_V) / params.hbar # Normalize by hbar
 
     # Create control field
@@ -130,7 +134,8 @@ def simulate_dark_states(times, control_input, rho_0_choice, pol_overlaps, param
     elif control_field == (lambda t: 0):
         H = H_0
     else:
-        H = [H_0, [H_c, control_field]]
+        H = H_0 + dq.modulated(control_field, H_c)
+        # H = [H_0, [H_c, control_field]]
 
     # Define population operators for each state
     N = 6  # Number of states
@@ -143,7 +148,8 @@ def simulate_dark_states(times, control_input, rho_0_choice, pol_overlaps, param
     rho0 = create_initial_state(rho_0_choice, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton)
 
     # Run the simulation using mesolve and calculate populations
-    result = mesolve(H , rho0, times, collapse_operators, population_ops)
+    method = dq.method.Tsit5(rtol = 1e-5, max_steps = 20000000)
+    result = dq.mesolve(H, collapse_operators, rho0, times, exp_ops = population_ops, method = method)
 
     return result
 
@@ -152,7 +158,7 @@ def plot_population_trajectories(results):
     plt.figure(figsize=(10, 6))
     state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
     for i in range(6):
-        plt.plot(results.times, results.expect[i], label=(f"|{i}> = " + state_labels[i]))
+        plt.plot(results.tsave, results.expects[i], label=(f"|{i}> = " + state_labels[i]))
 
     plt.xlabel("Time (ps)")
     plt.ylabel("Population")
@@ -161,8 +167,15 @@ def plot_population_trajectories(results):
     plt.grid()
     plt.show()
 
-def plot_control_field(control_fun, t_array):
-    control_FF_array = control_fun(t_array)
+def plot_control_field(control_FF, t_array):
+    if callable(control_FF):
+        print("Control input provided as callable.")
+        control_FF_array = control_FF(t_array)
+    elif isinstance(control_FF, jnp.ndarray):
+        print("Control input provided as array.")
+        control_FF_array = control_FF
+    else:
+        raise ValueError("Control field must be either a callable function or a numpy array")
     plt.figure()
     plt.plot(t_array, control_FF_array)
     plt.xlabel("Time (ps)")
@@ -170,10 +183,15 @@ def plot_control_field(control_fun, t_array):
     plt.title("Control Field")
     plt.show()
 
-def plot_control_field_fft(control_fun, t_array):
-    control_FF_array = control_fun(t_array)
-    control_FF_FFT = np.fft.fft(control_FF_array)
-    control_FF_FFT = np.abs(control_FF_FFT)
+def plot_control_field_fft(control_FF, t_array):
+    if callable(control_FF):
+        control_FF_array = control_FF(t_array)
+    elif isinstance(control_FF, jnp.ndarray):
+        control_FF_array = control_FF
+    else:
+        raise ValueError("Control field must be either a callable function or a numpy array")
+    control_FF_FFT = jnp.fft.fft(control_FF_array)
+    control_FF_FFT = jnp.abs(control_FF_FFT)
     control_FF_FFT = control_FF_FFT[:len(control_FF_FFT)//2]
     plt.figure()
     plt.plot(control_FF_FFT)
@@ -240,7 +258,7 @@ class Results:
             'params': self.params.__dict__ if hasattr(self.params, '__dict__') else self.params,
             'control_field': self.control_field(self.times) if callable(self.control_field) else None
         }
-        np.savez(filename, **data)
+        jnp.savez(filename, **data)
     def plot_state_populations(self, state_indices=None):
         """Plot population trajectories for specified states or all states."""
         plt.figure(figsize=(10, 6))
@@ -269,10 +287,10 @@ if __name__ == "__main__":
     t_start = 0
     t_end = 1000  # ps
     dt = 0.05      # time step in ps
-    t_array = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
+    t_array = jnp.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
 
     # Define control input
-    control_FF = lambda t: 1 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
+    control_FF = lambda t: 1 * (1/(1+ t**2/100)) * jnp.sin(2 * jnp.pi * t)
     plot_control_field(control_FF, t_array)
     plot_control_field_fft( control_FF, t_array )
     # carry out the simulation

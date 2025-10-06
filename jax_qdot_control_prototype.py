@@ -175,40 +175,88 @@ def complex_to_real_block(M: np.ndarray) -> np.ndarray:
     M_imag = M.imag
     return np.block([[M_real, -M_imag], [M_imag, M_real]])
 
+# def plot_population_trajectories(all_trajs):
+#     # Convert all_trajs to numpy array for easier manipulation
+#     all_trajs_np = np.array(all_trajs)
+    
+#     # Compute populations for each trajectory first, then average
+#     # This gives us the average population, not the population of the average
+#     populations = [all_trajs_np[:, :, k, 0]**2 + all_trajs_np[:, :, k + N_STATES, 0]**2 for k in range(N_STATES)]
+#     mean_populations = [np.mean(populations[k], axis=0) for k in range(N_STATES)]
+    
+#     # Create figure with two subplots
+#     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+    
+#     # Plot mean population trajectories
+#     state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
+#     for i in range(N_STATES):
+#         ax1.plot(t_array, mean_populations[i],
+#                 label=(f"|{i}> = " + state_labels[i]))
+#     ax1.set_xlabel("Time (ps)")
+#     ax1.set_ylabel("Population")
+#     ax1.set_title("Mean Population Trajectories")
+#     ax1.legend()
+#     ax1.grid()
+
+#     # Randomly select 20 trajectories to plot
+#     selected_indices = np.random.choice(all_trajs_np.shape[0], size=10, replace=False)
+#     # Plot individual trajectories for each state
+#     colors = plt.cm.Set1(np.linspace(0, 1, N_STATES))
+#     for i in range(N_STATES):
+#         # Extract trajectories for this state
+#         state_pops = populations[i]
+#         selected_pops = state_pops[selected_indices,:]
+#         # Plot each selected trajectory with the same color
+#         for traj in selected_pops:
+#             ax2.plot(t_array, traj, color=colors[i], alpha=0.5)
+#         ax2.plot([], [], color=colors[i], label=state_labels[i], alpha=0.5)
+#     ax2.set_xlabel("Time (ps)")
+#     ax2.set_ylabel("Population")
+#     ax2.set_title("Individual Population Trajectories")
+#     ax2.legend()
+#     ax2.grid()
+#     plt.tight_layout()
+#     plt.show()
+
 def plot_population_trajectories(all_trajs):
-    # Convert all_trajs to numpy array for easier manipulation
+
+    """Plot population trajectories for all states (mean) and multiple (randomly chosen) trajectories."""
+
+    # Convert to numpy array once
     all_trajs_np = np.array(all_trajs)
-    # Calculate mean trajectory
-    traj_mean = np.mean(all_trajs_np[:, :, :, 0], axis=0)
-    normalization_factors = np.sqrt(np.sum(traj_mean**2, axis=2, keepdims=True))
-    traj_mean = traj_mean / normalization_factors
+    # Compute all populations at once using numpy operations
+    real_parts = all_trajs_np[:, :, :N_STATES, 0]  # Shape: (n_trajs, n_times, N_STATES)
+    imag_parts = all_trajs_np[:, :, N_STATES:2*N_STATES, 0]  # Shape: (n_trajs, n_times, N_STATES)
+    # Compute populations: |ψ|² = Re² + Im²
+    populations = real_parts**2 + imag_parts**2  # Shape: (n_trajs, n_times, N_STATES)
+    # Vectorized mean calculation
+    mean_populations = np.mean(populations, axis=0)  # Shape: (n_times, N_STATES)
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
-    # Plot mean trajectories
+    # Plot mean population trajectories
     state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
     for i in range(N_STATES):
-        ax1.plot(t_array, traj_mean[:, i]**2 + traj_mean[:, i + N_STATES]**2,
-                label=(f"|{i}> = " + state_labels[i]))
+        ax1.plot(t_array, mean_populations[:, i], 
+                label=f"|{i}> = {state_labels[i]}")
     ax1.set_xlabel("Time (ps)")
     ax1.set_ylabel("Population")
     ax1.set_title("Mean Population Trajectories")
     ax1.legend()
     ax1.grid()
 
-    # Plot individual trajectories for each state
-    colors = plt.cm.viridis(np.linspace(0, 1, N_STATES))
+    # Randomly select 20 trajectories to plot
+    n_selected = min(10, all_trajs_np.shape[0])  # Handle case with fewer than 10 trajectories
+    selected_indices = np.random.choice(all_trajs_np.shape[0], size=n_selected, replace=False)
+    # Plot individual trajectories more efficiently
+    selected_populations = populations[selected_indices, :, :]  # Shape: (n_selected, n_times, N_STATES)
     for i in range(N_STATES):
-        # Extract trajectories for this state
-        state_trajs = all_trajs_np[:, :, i, 0]**2 + all_trajs_np[:, :, i + N_STATES, 0]**2
-        # Randomly select 20 trajectories to plot
-        selected_indices = np.random.choice(state_trajs.shape[0], size=20, replace=False)
-        selected_trajs = state_trajs[selected_indices]
-        # Plot each selected trajectory with the same color
-        for traj in selected_trajs:
-            ax2.plot(t_array, traj, color=colors[i], alpha=0.1)
-        # Plot mean trajectory for this state
-        ax2.plot(t_array, traj_mean[:, i]**2 + traj_mean[:, i + N_STATES]**2,
-                color=colors[i], linewidth=2, label=(f"|{i}> = " + state_labels[i]))
+        # Plot all selected trajectories for this state at once
+        for j in range(n_selected):
+            ax2.plot(t_array, selected_populations[j, :, i], 
+                    alpha=0.5, color=plt.cm.Set1(i / (N_STATES-1)))
+        # Add label for the state
+        ax2.plot([], [], color=plt.cm.Set1(i / (N_STATES-1)), 
+                label=state_labels[i], alpha=0.5)
     ax2.set_xlabel("Time (ps)")
     ax2.set_ylabel("Population")
     ax2.set_title("Individual Population Trajectories")
@@ -268,7 +316,7 @@ def jax_sim_setup(psi_0_choice,psi_T_choice,pol_overlaps,params):
     # Create Hamiltonian terms
     H_QD, H_bx, H_bz, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton = create_QD_hamiltonian_terms_and_states(params)
     # Total Hamiltonian (without control fields)
-    H_0 = (H_QD + H_bx + H_bz) / params.hbar 
+    H_0 = (H_QD + H_bx + H_bz) / params.hbar / 1000
     # Add control Hamiltonians (factor for polarization overlap included)
     H_c_H = pol_overlaps["H"] * params.hbar * (exciton_x @ ground_state.conj().T + ground_state @ exciton_x.conj().T + exciton_x @ biexciton.conj().T + biexciton @ exciton_x.conj().T)
     H_c_V = pol_overlaps["V"] * params.hbar * (exciton_y @ ground_state.conj().T + ground_state @ exciton_y.conj().T + exciton_y @ biexciton.conj().T + biexciton @ exciton_y.conj().T)
@@ -312,20 +360,6 @@ def em_step(psi, dW_real, dW_imag, u, dt, H_0_j, H_control_j, L_operators_j, Lda
     # Normalize input
     psi_n = normalize_psi(psi)
     H_total = H_0_j + u * H_control_j
-
-    # 1. Deterministic drift part (vectorized)
-    # def f_drift(p):
-    #      # Vectorized expectation values: <L_i> = psi_dag @ L_i @ psi
-    #      L_unitary_psi = 0.5* jnp.sum((L_operators_j + L_operators_j.conj().transpose(0,2,1)) * p, axis=(1,2))  # Shape: (N_collapse, dim, 1)
-    #      L_unitary_avg = jnp.sum(p.conj().T * L_unitary_psi, axis=(1,2))  # Shape: (N_collapse,)
-    #      # Vectorized drift calculation
-    #      LdagL_psi = jnp.sum(LdagL_operators_j * p, axis=(1,2))  # Shape: (N_collapse, dim, 1)
-    #      term1 = -0.5 * jnp.sum(LdagL_psi, axis=0)  # Sum over collapse operators
-    #      L_psi = jnp.sum(L_operators_j * p, axis=(1,2))
-    #      term2 = jnp.sum(L_unitary_avg[:, None, None] * L_psi, axis=0)
-    #      term3 = -0.5 * jnp.sum(L_unitary_avg[:, None, None]**2 * p, axis=0)
-        
-    #      return -(I_imag_j/HBAR) @ (H_total @ p) + term1 + term2 + term3
     
     def f_drift(p):
          # Vectorized expectation values: <L_i> = psi_dag @ L_i @ psi
@@ -340,7 +374,7 @@ def em_step(psi, dW_real, dW_imag, u, dt, H_0_j, H_control_j, L_operators_j, Lda
         #  term3 = -0.5 * jnp.sum(LdagL_avg * p, axis=0)
          term3 = -0.5 * jnp.sum(L_unitary_avg**2 * p, axis=0)
         
-         return -I_imag_j @ (H_total @ p) * 1e-3 + term1 + term2 + term3
+         return -I_imag_j @ (H_total @ p) + term1 + term2 + term3
 
     # Midpoint method (RK2) for drift
     k1 = f_drift(psi_n)
@@ -432,12 +466,12 @@ if __name__ == "__main__":
     # Define time array for the simulation
     t_start = 0
     t_end = 1000  # ps
-    dt = 0.01      # time step in ps
+    dt = 0.05      # time step in ps
     t_array = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
 
     # Define control input guess
-    # control_FF_guess = lambda t: 1000 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
-    control_FF_guess = lambda t: 0*t
+    control_FF_guess = lambda t: 1 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
+    # control_FF_guess = lambda t: 0*t
     control_FF_guess_array = control_FF_guess(t_array)
     # control_FF_guess_array = np.zeros(len(t_array))
     plot_control_field(control_FF_guess, t_array)
