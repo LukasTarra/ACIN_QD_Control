@@ -1,4 +1,5 @@
 """import packages"""
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
@@ -7,7 +8,6 @@ import jax.debug as jdebug
 from jax.lax import scan
 from jax.scipy.optimize import minimize
 from getparameters import get_parameters
-from tqdm import tqdm # progress bar
 
 # broader shell output before linebreaks for debugging 
 np.set_printoptions(linewidth=300, edgeitems=10)
@@ -123,8 +123,9 @@ def create_collapse_operators(ground_state, exciton_x, exciton_y, dark_exciton_x
     collapse_ops = [
         np.sqrt(exciton_decay_rate) * (ground_state @ exciton_x.conj().T),
         np.sqrt(exciton_decay_rate) * (ground_state @ exciton_y.conj().T),
-        np.sqrt(dark_state_decay_rate) * (ground_state @ dark_exciton_x.conj().T),
-        np.sqrt(dark_state_decay_rate) * (ground_state @ dark_exciton_y.conj().T),
+        # # Leave out the dark states to reduce overhead
+        # np.sqrt(dark_state_decay_rate) * (ground_state @ dark_exciton_x.conj().T),
+        # np.sqrt(dark_state_decay_rate) * (ground_state @ dark_exciton_y.conj().T),
         np.sqrt(biexciton_decay_rate) * (exciton_x @ biexciton.conj().T),
         np.sqrt(biexciton_decay_rate) * (exciton_y @ biexciton.conj().T)
     ]
@@ -171,57 +172,29 @@ def create_target_state(psi_T_choice, ground_state, exciton_x, exciton_y, dark_e
 
 # komplexe Matrizen als reelle Blockmatrix
 def complex_to_real_block(M: np.ndarray) -> np.ndarray:
+    """Convert a complex matrix to a real block matrix representation.
+
+    This function transforms a complex matrix M into a real matrix by
+    representing complex numbers as 2x2 real blocks:
+    [real(M)  -imag(M)]
+    [imag(M)   real(M)]
+
+    The resulting matrix has dtype float64 to ensure all elements are real.
+    """
+    # Extract real and imaginary parts
     M_real = M.real
     M_imag = M.imag
-    return np.block([[M_real, -M_imag], [M_imag, M_real]])
-
-# def plot_population_trajectories(all_trajs):
-#     # Convert all_trajs to numpy array for easier manipulation
-#     all_trajs_np = np.array(all_trajs)
-    
-#     # Compute populations for each trajectory first, then average
-#     # This gives us the average population, not the population of the average
-#     populations = [all_trajs_np[:, :, k, 0]**2 + all_trajs_np[:, :, k + N_STATES, 0]**2 for k in range(N_STATES)]
-#     mean_populations = [np.mean(populations[k], axis=0) for k in range(N_STATES)]
-    
-#     # Create figure with two subplots
-#     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
-    
-#     # Plot mean population trajectories
-#     state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
-#     for i in range(N_STATES):
-#         ax1.plot(t_array, mean_populations[i],
-#                 label=(f"|{i}> = " + state_labels[i]))
-#     ax1.set_xlabel("Time (ps)")
-#     ax1.set_ylabel("Population")
-#     ax1.set_title("Mean Population Trajectories")
-#     ax1.legend()
-#     ax1.grid()
-
-#     # Randomly select 20 trajectories to plot
-#     selected_indices = np.random.choice(all_trajs_np.shape[0], size=10, replace=False)
-#     # Plot individual trajectories for each state
-#     colors = plt.cm.Set1(np.linspace(0, 1, N_STATES))
-#     for i in range(N_STATES):
-#         # Extract trajectories for this state
-#         state_pops = populations[i]
-#         selected_pops = state_pops[selected_indices,:]
-#         # Plot each selected trajectory with the same color
-#         for traj in selected_pops:
-#             ax2.plot(t_array, traj, color=colors[i], alpha=0.5)
-#         ax2.plot([], [], color=colors[i], label=state_labels[i], alpha=0.5)
-#     ax2.set_xlabel("Time (ps)")
-#     ax2.set_ylabel("Population")
-#     ax2.set_title("Individual Population Trajectories")
-#     ax2.legend()
-#     ax2.grid()
-#     plt.tight_layout()
-#     plt.show()
+    # Create the real block matrix
+    # Using np.block for clear block structure
+    block_matrix = np.block([
+        [M_real, -M_imag],
+        [M_imag, M_real]
+    ])
+    # Explicitly cast to real dtype (float32) to remove any imaginary components
+    return block_matrix.astype(np.float32)
 
 def plot_population_trajectories(all_trajs):
-
     """Plot population trajectories for all states (mean) and multiple (randomly chosen) trajectories."""
-
     # Convert to numpy array once
     all_trajs_np = np.array(all_trajs)
     # Compute all populations at once using numpy operations
@@ -296,10 +269,10 @@ def plot_control_field_fft(control_FF, t_array):
     plt.title("Control Field FFT")
     plt.show()
 
-def create_jax_noise_traj_arrays(number_trajectories, number_steps, dt):
+def create_jax_noise_traj_arrays(number_collapse, number_trajectories, number_steps, dt):
     # Erzeuge feste Rauschpfade für die Optimierung (reproduzierbar)
-    dW_real_opt_val = RNG.normal(size=(number_trajectories, number_steps)) * np.sqrt(dt)
-    dW_imag_opt_val = RNG.normal(size=(number_trajectories, number_steps)) * np.sqrt(dt)
+    dW_real_opt_val = RNG.normal(size=(number_trajectories, number_steps, number_collapse)) * np.sqrt(dt)
+    dW_imag_opt_val = RNG.normal(size=(number_trajectories, number_steps, number_collapse)) * np.sqrt(dt)
     # Konvertiere zu JAX
     dW_real_opt_j = jnp.array(dW_real_opt_val)
     dW_imag_opt_j = jnp.array(dW_imag_opt_val)
@@ -340,6 +313,7 @@ def jax_sim_setup(psi_0_choice,psi_T_choice,pol_overlaps,params):
     H_0_j = jnp.array(H_0_real)
     H_control_j = jnp.array(H_control_real)
     L_operators_j = jnp.stack( [jnp.array(L) for L in L_operators_real] )
+    L_operators_transposed_j = L_operators_j.transpose((0,2,1))
     LdagL_operators_j = jnp.stack( [jnp.array(LdagL) for LdagL in LdagL_operators_real] )
     # L_operators_j = [jnp.array(L) for L in L_operators_real]
     # LdagL_operators_j = [jnp.array(LdagL) for LdagL in LdagL_operators_real]
@@ -347,7 +321,7 @@ def jax_sim_setup(psi_0_choice,psi_T_choice,pol_overlaps,params):
     psi_T_j = jnp.array(psi_T_real)
     I_imag_j = jnp.array(I_imag_real)
 
-    return H_0_j, H_control_j, L_operators_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j
+    return H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j
 
 @jit
 def normalize_psi(psi):
@@ -356,15 +330,15 @@ def normalize_psi(psi):
     return psi / (norm + regularization)
 
 @jit
-def em_step(psi, dW_real, dW_imag, u, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j):
+def em_step(psi, dW_real, dW_imag, u, dt, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, I_imag_j):
     # Normalize input
     psi_n = normalize_psi(psi)
     H_total = H_0_j + u * H_control_j
     
     def f_drift(p):
          # Vectorized expectation values: <L_i> = psi_dag @ L_i @ psi
-         L_unitary_psi = 0.5* (L_operators_j + L_operators_j.conj().transpose(0,2,1)) @ p  # Shape: (N_collapse, dim, 1)
-         L_unitary_avg = p.conj().T @ L_unitary_psi  # Shape: (N_collapse,1,1)
+         L_unitary_psi = 0.5* (L_operators_j + L_operators_transposed_j) @ p  # Shape: (N_collapse, dim, 1)
+         L_unitary_avg = p.T @ L_unitary_psi  # Shape: (N_collapse,1,1)
          # Vectorized drift calculation
          LdagL_psi = LdagL_operators_j @ p # Shape: (N_collapse, dim, 1)
          term1 = -0.5 * jnp.sum(LdagL_psi, axis=0)  # Sum over collapse operators
@@ -381,32 +355,32 @@ def em_step(psi, dW_real, dW_imag, u, dt, H_0_j, H_control_j, L_operators_j, Lda
     drift = f_drift(psi_n + 0.5 * dt * k1)
 
     # 2. Stochastic diffusion part (vectorized)
-    L_unitary_psi = 0.5* (L_operators_j + L_operators_j.conj().transpose(0,2,1)) @ psi_n  # Shape: (N_collapse, dim, 1)
-    L_unitary_avg = psi_n.conj().T @ L_unitary_psi  # Shape: (N_collapse,1,1)
+    L_unitary_psi = 0.5* (L_operators_j + L_operators_transposed_j) @ psi_n  # Shape: (N_collapse, dim, 1)
+    L_unitary_avg = psi_n.T @ L_unitary_psi  # Shape: (N_collapse,1,1)
     L_psi = L_operators_j @ psi_n
     diffusion_base = L_psi - L_unitary_avg * psi_n  # Shape: (N_collapse, dim, 1)
-    # # Use the correct implementation with different dWs (more accurate)
-    # diffusion = jnp.sum(
-    #     diffusion_base * dW_real[:, None, None] + 
-    #     (I_imag_j @ diffusion_base) * dW_imag[:, None, None], 
-    #     axis=0
-    # )
-    # Use the approx implementation with same dWs (less accurate)
+    # Use the correct implementation with different dWs (more accurate)
     diffusion = jnp.sum(
-        diffusion_base * dW_real + 
-        (I_imag_j @ diffusion_base) * dW_imag, 
+        diffusion_base * dW_real[:, None, None] + 
+        (I_imag_j @ diffusion_base) * dW_imag[:, None, None], 
         axis=0
     )
+    # # Use the approx implementation with same dWs (less accurate)
+    # diffusion = jnp.sum(
+    #     diffusion_base * dW_real + 
+    #     (I_imag_j @ diffusion_base) * dW_imag, 
+    #     axis=0
+    # )
     # Combine using Euler-Maruyama
     psi_next = psi_n + drift * dt + diffusion
     return normalize_psi(psi_next)
 
 @jit
-def simulate_single_traj(u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j):
+def simulate_single_traj(u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, I_imag_j):
     def step_fn(carry, inputs):
         psi = carry
         dW_r, dW_i, u = inputs
-        psi_next = em_step(psi, dW_r, dW_i, u, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j)
+        psi_next = em_step(psi, dW_r, dW_i, u, dt, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, I_imag_j)
         return psi_next, psi_next
 
     inputs = (dW_real_traj, dW_imag_traj, u_traj)
@@ -415,7 +389,7 @@ def simulate_single_traj(u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt, H_0_j,
     return traj
 
 # vmap over trajectories
-sim_forward_vmap = vmap(simulate_single_traj, in_axes=(None, 0, 0, None, None, None, None, None, None, None), out_axes=0)
+sim_forward_vmap = vmap(simulate_single_traj, in_axes=(None, 0, 0, None, None, None, None, None, None, None, None), out_axes=0)
 
 """END simulation functions"""
 
@@ -459,7 +433,7 @@ if __name__ == "__main__":
     target_state = "D_H"
     # no. of Trajectories for optimization & simulation
     number_trajectories_opt = 100
-    number_trajectories_sim = 100
+    number_trajectories_sim = 600
     # set control weight
     control_weight = 0.0001
 
@@ -478,15 +452,24 @@ if __name__ == "__main__":
     plot_control_field_fft( control_FF_guess, t_array )
 
     # set up JAX simulation
-    H_0_j, H_control_j, L_operators_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j = jax_sim_setup(init_state,target_state,polarization_overlaps,par_QD)
+    H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j = jax_sim_setup(init_state,target_state,polarization_overlaps,par_QD)
 
     # # optimize control guess
     # dW_real_opt_j, dW_imag_opt_j = create_jax_noise_traj_arrays(number_trajectories_opt, len(t_array), dt)
     # control_FF_opt_bfgs = optimize_u_traj(control_FF_guess_array, control_weight, dW_real_opt_j, dW_imag_opt_j, psi_0_j, psi_T_j, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j)
 
     # simulate the system with the guess
-    dW_real_opt_j, dW_imag_opt_j = create_jax_noise_traj_arrays(number_trajectories_sim, len(t_array), dt)
-    all_trajs = sim_forward_vmap(control_FF_guess_array, dW_real_opt_j, dW_imag_opt_j, psi_0_j, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j)
-    
+    number_collapse_ops = L_operators_j.shape[0]
+    dW_real_opt_j, dW_imag_opt_j = create_jax_noise_traj_arrays(number_collapse_ops, number_trajectories_sim, len(t_array), dt)
+
+    # Measure simulation runtime
+    start_time = time.time()
+    all_trajs = sim_forward_vmap(control_FF_guess_array, dW_real_opt_j, dW_imag_opt_j, psi_0_j, dt, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, I_imag_j)
+    # Convert to numpy array once
+    all_trajs = np.array(all_trajs)
+    end_time = time.time()
+    simulation_time = end_time - start_time
+    print(f"Simulation completed in {simulation_time:.2f} seconds")
+
     # plot population trajectories
     plot_population_trajectories(all_trajs)
