@@ -7,6 +7,7 @@ from jax import jit, vmap
 import jax.debug as jdebug
 from jax.lax import scan
 from jax.scipy.optimize import minimize
+from jax.scipy.linalg import expm
 from getparameters import get_parameters
 
 # broader shell output before linebreaks for debugging 
@@ -186,12 +187,33 @@ def complex_to_real_block(M: np.ndarray) -> np.ndarray:
     M_imag = M.imag
     # Create the real block matrix
     # Using np.block for clear block structure
-    block_matrix = np.block([
+    block_matrix = jnp.block([
         [M_real, -M_imag],
         [M_imag, M_real]
     ])
     # Explicitly cast to real dtype (float32) to remove any imaginary components
     return block_matrix.astype(np.float32)
+
+def real_to_complex_block(M: np.ndarray) -> np.ndarray:
+    """Convert a real block matrix back to a complex matrix.
+    
+    This function transforms a real block matrix M back to its complex form
+    by extracting the real and imaginary parts from the block structure:
+    M_complex = M_upper_left + 1j * M_lower_left
+    """
+    # Get the dimensions of the input matrix
+    n, m = M.shape
+    # The real block matrix has twice the dimensions of the original complex matrix
+    # So the original complex matrix has dimensions n/2 × m/2
+    n_half = n // 2
+    m_half = m // 2
+    # Extract the real part (upper left block)
+    real_part = M[:n_half, :m_half]
+    # Extract the imaginary part (bottom left block)
+    imag_part = M[n_half:, :m_half]
+    # Combine them to form the complex matrix
+    complex_matrix = real_part + 1j * imag_part
+    return complex_matrix
 
 def plot_population_trajectories(all_trajs):
     """Plot population trajectories for all states (mean) and multiple (randomly chosen) trajectories."""
@@ -323,6 +345,52 @@ def jax_sim_setup(psi_0_choice,psi_T_choice,pol_overlaps,params):
 
     return H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j
 
+def transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j):
+
+    # Compute H_0_complex_times_t with dimensions (len(t_array), n, n)
+    H_0_complex         = real_to_complex_block(H_0_j)
+    H_0_complex_times_t = jnp.einsum('ij,t->tij', H_0_complex, t_array)
+    # Compute unitary transformation U (matrix exponential)
+    U                   = expm(-1j * H_0_complex_times_t)
+    U_dag               = U.conj().transpose((0,2,1)) # Adjoint of unitary transform
+    # transform the relevant matrices to rotating frame
+    H_control_complex   = real_to_complex_block(H_control_j)
+    H_control_tilde     = U_dag @ H_control_complex @ U # Rotating frame Hamiltonian
+    dim = H_control_j.shape[-1] # dimension 
+    dim_half = H_control_j.shape[-1] // 2
+    N_collapse = L_operators_j.shape[0]
+    L_operators_tilde = np.zeros((len(t_array),N_collapse,dim_half,dim_half))
+    L_operators_dag_tilde = np.zeros((len(t_array),N_collapse,dim_half,dim_half))
+    LdagL_operators_tilde = np.zeros((len(t_array),N_collapse,dim_half,dim_half))
+    for k in range(N_collapse):
+        L_operator_complex = real_to_complex_block(L_operators_j[k,:,:])
+        L_operator_dag_complex = real_to_complex_block(L_operators_transposed_j[k,:,:])
+        LdagL_operator_complex = real_to_complex_block(LdagL_operators_j[k,:,:])
+        # Apply unitary transformation to L operators
+        L_operators_tilde[:,k,:,:] = U_dag @ L_operator_complex @ U
+        L_operators_dag_tilde[:,k,:,:] = U_dag @ L_operator_dag_complex @ U
+        LdagL_operators_tilde[:,k,:,:] = U_dag @ LdagL_operator_complex @ U
+    # transform back to the real representations using a vmap for time
+    time_matrices_complex_to_real_block_vmap = vmap(complex_to_real_block, in_axes=(0), out_axes=0)
+    H_control_tilde_j = time_matrices_complex_to_real_block_vmap(H_control_tilde)
+    L_operators_tilde_j = np.zeros((len(t_array),N_collapse,dim,dim))
+    L_operators_transposed_tilde_j = np.zeros((len(t_array),N_collapse,dim,dim))
+    LdagL_operators_tilde_j = np.zeros((len(t_array),N_collapse,dim,dim))
+    for k in range(N_collapse):
+        L_operators_tilde_j[:,k,:,:] = time_matrices_complex_to_real_block_vmap(L_operators_tilde[:,k,:,:])
+        L_operators_transposed_tilde_j[:,k,:,:] = time_matrices_complex_to_real_block_vmap(L_operators_dag_tilde[:,k,:,:])
+        LdagL_operators_tilde_j[:,k,:,:] = time_matrices_complex_to_real_block_vmap(LdagL_operators_tilde[:,k,:,:])
+    # convert resulting arrays to JAX arrays
+    U_j = jnp.array(U)
+    U_dag_j = jnp.array(U_dag)
+    H_control_tilde_j = jnp.array(H_control_tilde_j)
+    L_operators_tilde_j = jnp.array(L_operators_tilde_j)
+    L_operators_transposed_tilde_j = jnp.array(L_operators_transposed_tilde_j)
+    LdagL_operators_tilde_j = jnp.array(LdagL_operators_tilde_j)
+
+    return U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j
+
+
 @jit
 def normalize_psi(psi):
     regularization = 1e-12 # prevent division by zero
@@ -421,6 +489,7 @@ def optimize_u_traj(u_init, control_weight, dW_real_opt_j, dW_imag_opt_j, psi_0_
 
 """END optimization functions"""
 
+
 """START main function"""
 
 if __name__ == "__main__":
@@ -452,7 +521,12 @@ if __name__ == "__main__":
     plot_control_field_fft( control_FF_guess, t_array )
 
     # set up JAX simulation
-    H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j = jax_sim_setup(init_state,target_state,polarization_overlaps,par_QD)
+    H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j = \
+        jax_sim_setup(init_state,target_state,polarization_overlaps,par_QD)
+
+    # transform to rotating frame
+    U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j = \
+        transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j)
 
     # # optimize control guess
     # dW_real_opt_j, dW_imag_opt_j = create_jax_noise_traj_arrays(number_trajectories_opt, len(t_array), dt)
