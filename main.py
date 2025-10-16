@@ -113,7 +113,7 @@ def simulate_dark_states(times, control_input, rho_0_choice, pol_overlaps, param
     H_QD, H_bx, H_bz, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton = create_hamiltonian_terms(params)
 
     # Total Hamiltonian (without control fields)
-    H_0 = (H_QD + H_bx + H_bz) / params.hbar / 1000  # Normalize by hbar
+    H_0 = (H_QD + H_bx + H_bz) / params.hbar / 10  # Normalize by hbar
 
     # Add control Hamiltonians (factor for polarization overlap included)
     H_c_H = pol_overlaps["H"] * params.hbar * (exciton_x * ground_state.dag() + ground_state * exciton_x.dag() + exciton_x * biexciton.dag() + biexciton * exciton_x.dag())
