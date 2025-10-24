@@ -3,13 +3,15 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
-from jax import jit, vmap, profiler
+from jax import jit, vmap, profiler, random
 import jax.debug as jdebug
 from jax.lax import scan
 from jax.scipy.optimize import minimize
 from jax.scipy.linalg import expm
 from functools import partial
 from getparameters import get_parameters
+
+import pdb
 
 # broader shell output before linebreaks for debugging 
 np.set_printoptions(linewidth=300, edgeitems=10)
@@ -24,7 +26,6 @@ SEED = 42
 RNG = np.random
 nominal_parameters = get_parameters()
 HBAR = nominal_parameters.hbar # Planck constant in weird units
-
 
 """START helper functions"""
 
@@ -246,7 +247,7 @@ def plot_population_trajectories(all_trajs,t_array):
     selected_indices = np.random.choice(all_trajs_np.shape[0], size=n_selected, replace=False)
     # Plot individual trajectories more efficiently
     selected_populations = populations[selected_indices, :, :]  # Shape: (n_selected, n_times, N_STATES)
-
+    
     for i in range(N_STATES):
         # Plota all selected trajectories for this state at once
         for j in range(n_selected):
@@ -293,15 +294,29 @@ def plot_control_field_fft(control_FF, t_array):
     plt.title("Control Field FFT")
     plt.show()
 
-def create_jax_noise_traj_arrays(number_collapse, number_trajectories, number_steps, dt):
-    # Erzeuge feste Rauschpfade für die Optimierung (reproduzierbar)
-    dW_real_opt_val = RNG.normal(size=(number_trajectories, number_steps, number_collapse)) * np.sqrt(dt)
-    dW_imag_opt_val = RNG.normal(size=(number_trajectories, number_steps, number_collapse)) * np.sqrt(dt)
-    # Konvertiere zu JAX
-    dW_real_opt_j = jnp.array(dW_real_opt_val)
-    dW_imag_opt_j = jnp.array(dW_imag_opt_val)
+@partial(jit, static_argnames = ["number_collapse","number_trajectories","number_steps"])
+def create_jax_noise_traj_arrays(number_collapse, number_trajectories, number_steps, dt, seed=SEED):
+    # Create a JAX random key
+    key = random.key(seed)
+    # Generate noise arrays using JAX random functions
+    dW_real_j = random.normal(key, (number_trajectories, number_steps, number_collapse)) * jnp.sqrt(dt)
+    key, subkey = random.split(key)
+    dW_imag_j = random.normal(subkey, (number_trajectories, number_steps, number_collapse)) * jnp.sqrt(dt)
 
-    return dW_real_opt_j, dW_imag_opt_j
+    return dW_real_j, dW_imag_j
+
+# def create_jax_noise_traj_arrays(number_collapse, number_trajectories, number_steps, dt):
+    
+#     # Generate noise arrays using JAX random functions
+#     dW_real_j = RNG.normal(0,1, (number_trajectories, number_steps, number_collapse)) * jnp.sqrt(dt)
+#     dW_imag_j = RNG.normal(0,1, (number_trajectories, number_steps, number_collapse)) * jnp.sqrt(dt)
+
+#     dW_real_j = jnp.array(dW_real_j)
+#     dW_imag_j = jnp.array(dW_imag_j)
+
+#     return dW_real_j, dW_imag_j
+
+
 
 """END helper functions"""
 
@@ -313,7 +328,7 @@ def jax_sim_setup(psi_0_choice,psi_T_choice,pol_overlaps,params):
     # Create Hamiltonian terms
     H_QD, H_bx, H_bz, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton = create_QD_hamiltonian_terms_and_states(params)
     # Total Hamiltonian (without control fields)
-    H_0 = (H_QD + H_bx + H_bz) / params.hbar / 10
+    H_0 = (H_QD + H_bx + H_bz) / params.hbar / 1
     # Add control Hamiltonians (factor for polarization overlap included)
     H_c_H = pol_overlaps["H"] * params.hbar * (exciton_x @ ground_state.conj().T + ground_state @ exciton_x.conj().T + exciton_x @ biexciton.conj().T + biexciton @ exciton_x.conj().T)
     H_c_V = pol_overlaps["V"] * params.hbar * (exciton_y @ ground_state.conj().T + ground_state @ exciton_y.conj().T + exciton_y @ biexciton.conj().T + biexciton @ exciton_y.conj().T)
@@ -338,14 +353,15 @@ def jax_sim_setup(psi_0_choice,psi_T_choice,pol_overlaps,params):
     H_control_j = jnp.array(H_control_real)
     L_operators_j = jnp.stack( [jnp.array(L) for L in L_operators_real] )
     L_operators_transposed_j = L_operators_j.transpose((0,2,1))
+    L_operators_unitary_j = 0.5* (L_operators_j + L_operators_transposed_j)
     LdagL_operators_j = jnp.stack( [jnp.array(LdagL) for LdagL in LdagL_operators_real] )
     # L_operators_j = [jnp.array(L) for L in L_operators_real]
     # LdagL_operators_j = [jnp.array(LdagL) for LdagL in LdagL_operators_real]
     psi_0_j = jnp.array(psi_0_real)
     psi_T_j = jnp.array(psi_T_real)
     I_imag_j = jnp.array(I_imag_real)
-
-    return H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j
+    
+    return H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, L_operators_unitary_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j
 
 def transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j):
 
@@ -388,9 +404,10 @@ def transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, 
     H_control_tilde_j = jnp.array(H_control_tilde_j)
     L_operators_tilde_j = jnp.array(L_operators_tilde_j)
     L_operators_transposed_tilde_j = jnp.array(L_operators_transposed_tilde_j)
+    L_operators_unitary_tilde_j = 0.5*( L_operators_tilde_j + L_operators_transposed_tilde_j )
     LdagL_operators_tilde_j = jnp.array(LdagL_operators_tilde_j)
-
-    return U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j
+    
+    return U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j
 
 @jit
 def normalize_psi(psi):
@@ -398,8 +415,8 @@ def normalize_psi(psi):
     norm = jnp.linalg.norm(psi)
     return psi / (norm + regularization)
 
-# @partial(jit, static_argnames=['dt', 'H_0_j', 'I_imag_j'])
-def em_step(psi_n, dW_real, dW_imag, u, dt, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, I_imag_j):
+@jit
+def em_step(psi_n, dW_real, dW_imag, u, dt, H_control_j, L_operators_j, L_operators_unitary_j, LdagL_operators_j, I_imag_j):
     """
     Optimized Euler-Maruyama step in the rotating frame.
     """
@@ -408,10 +425,10 @@ def em_step(psi_n, dW_real, dW_imag, u, dt, H_control_j, L_operators_j, L_operat
 
     def f_drift(p):
         # More efficient computation without temporary arrays
-        # Compute L_unitary = 0.5*(L + L_dag) once
-        L_unitary = 0.5 * (L_operators_j + L_operators_transposed_j)
+        # # Compute L_unitary = 0.5*(L + L_dag) once
+        # L_unitary = 0.5 * (L_operators_j + L_operators_transposed_j)
         # Compute L_unitary @ psi for all operators at once
-        L_unitary_psi = L_unitary @ p  # Shape: (N_collapse, dim, 1)
+        L_unitary_psi = L_operators_unitary_j @ p  # Shape: (N_collapse, dim, 1)
         # Compute expectation values <L_unitary> = psi^dagger @ L_unitary @ psi
         # Reshape psi to (1, dim, 1) for proper broadcasting
         psi_reshaped = p.reshape(1, -1, 1)  # Shape: (1, dim, 1)
@@ -438,8 +455,8 @@ def em_step(psi_n, dW_real, dW_imag, u, dt, H_control_j, L_operators_j, L_operat
     psi_interm = normalize_psi(psi_n + drift * dt)
 
     # 2. Stochastic diffusion part (optimized)
-    L_unitary = 0.5 * (L_operators_j + L_operators_transposed_j)
-    L_unitary_psi_interm = L_unitary @ psi_interm
+    # L_unitary = 0.5 * (L_operators_j + L_operators_transposed_j)
+    L_unitary_psi_interm = L_operators_unitary_j @ psi_interm
     # Compute expectation values for intermediate state
     psi_interm_reshaped = psi_interm.reshape(1, -1, 1)
     L_unitary_avg_interm = jnp.sum(psi_interm_reshaped * L_unitary_psi_interm, 
@@ -476,64 +493,98 @@ def em_step(psi_n, dW_real, dW_imag, u, dt, H_control_j, L_operators_j, L_operat
 # sim_forward_vmap = (vmap(simulate_single_traj, in_axes=(None, 0, 0, None, None, None, None, None, None, None, None), out_axes=0))
 
 # Simulation in the rotating frame
-# @partial(jit, static_argnames=['psi_0_j', 'dt', 'H_control_tilde_j', 'L_operators_tilde_j', 'L_operators_transposed_tilde_j', 'LdagL_operators_tilde_j', 'I_imag_j'])
-def simulate_single_traj_rotating_frame(
-    u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j, I_imag_j):
+# @partial(jit, static_argnames=['psi_0_np', 'dt', 'H_control_tilde_np', 'L_operators_tilde_np', 'L_operators_unitary_tilde_np', 'LdagL_operators_tilde_np', 'I_imag_np'])
+# @jit
+# def simulate_single_traj_rotating_frame(
+#         u_traj, dW_real_traj, dW_imag_traj, psi_0_np, dt, H_control_tilde_np, L_operators_tilde_np, L_operators_unitary_tilde_np, LdagL_operators_tilde_np, I_imag_np):
 
-    def step_fn(carry, inputs):
-        psi = carry
-        dW_r, dW_i, u, H_c_tilde_j, L_tilde_j, L_transposed_tilde_j, LdagL_tilde_j = inputs
-        psi_next = em_step(psi, dW_r, dW_i, u, dt, H_c_tilde_j, L_tilde_j, L_transposed_tilde_j, LdagL_tilde_j, I_imag_j)
-        return psi_next, psi_next
+#     def step_fn(carry, inputs):
+#         psi = carry
+#         dW_r, dW_i, u, H_c_tilde, L_tilde, L_unitary_tilde, LdagL_tilde = inputs
+#         psi_next = em_step(psi, dW_r, dW_i, u, dt, H_c_tilde, L_tilde, L_unitary_tilde, LdagL_tilde, I_imag_np)
+#         return psi_next, psi_next
 
-    inputs = (dW_real_traj, dW_imag_traj, u_traj, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j)
-    _, traj = scan(step_fn, psi_0_j, inputs)
+#     inputs = (dW_real_traj, dW_imag_traj, u_traj, H_control_tilde_np, L_operators_tilde_np, L_operators_unitary_tilde_np, LdagL_operators_tilde_np)
+#     _, traj = scan(step_fn, psi_0_np, inputs)
     
-    return traj
+#     return traj
 
 # Simulation in the rotating frame (optimized)
 
 # @jit
-# def simulate_single_traj_rotating_frame(
-#     u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt, 
-#     H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j, I_imag_j):
-#     """
-#     Optimized version that avoids passing large time-dependent operators through scan.
-#     Instead, we use the time index to access operators from precomputed arrays.
-#     """
-#     H_0_j_rotating = jnp.zeros((len(psi_0_j),len(psi_0_j)))  # Constant zero Hamiltonian in rotating frame
+def simulate_single_traj_rotating_frame(
+    u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt, 
+    H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j):
+    """
+    Optimized version that avoids passing large time-dependent operators through scan.
+    Instead, we use the time index to access operators from precomputed arrays.
+    """
     
-#     def step_fn(carry, inputs):
-#         psi, time_idx = carry
-#         dW_r, dW_i, u = inputs
+    def step_fn(carry, inputs):
+        psi, time_idx = carry
+        dW_r, dW_i, u = inputs
         
-#         # Get time-dependent operators for current time step
-#         H_c_tilde_j = H_control_tilde_j[time_idx]
-#         L_tilde_j = L_operators_tilde_j[time_idx]
-#         L_transposed_tilde_j = L_operators_transposed_tilde_j[time_idx]
-#         LdagL_tilde_j = LdagL_operators_tilde_j[time_idx]
+        # Get time-dependent operators for current time step
+        H_c_tilde_j = H_control_tilde_j[time_idx]
+        L_tilde_j = L_operators_tilde_j[time_idx]
+        L_unitary_tilde_j = L_operators_unitary_tilde_j[time_idx]
+        LdagL_tilde_j = LdagL_operators_tilde_j[time_idx]
         
-#         psi_next = em_step(psi, dW_r, dW_i, u, dt, H_0_j_rotating, 
-#                           H_c_tilde_j, L_tilde_j, L_transposed_tilde_j, LdagL_tilde_j, I_imag_j)
-#         return (psi_next, time_idx + 1), psi_next
+        psi_next = em_step(psi, dW_r, dW_i, u, dt, 
+                          H_c_tilde_j, L_tilde_j, L_unitary_tilde_j, LdagL_tilde_j, I_imag_j)
+        return (psi_next, time_idx + 1), psi_next
 
-#     inputs = (dW_real_traj, dW_imag_traj, u_traj)
-#     _, traj = scan(step_fn, (psi_0_j, 0), inputs)
+    inputs = (dW_real_traj, dW_imag_traj, u_traj)
+    _, traj = scan(step_fn, (psi_0_j, 0), inputs)
     
-#     return traj
+    return traj
 
-# vmap over trajectories
-sim_forward_vmap_rotating_frame = (vmap(simulate_single_traj_rotating_frame, in_axes=(None, 0, 0, None, None, None, None, None, None, None), out_axes=0))
+sim_forward_vmap_rotating_frame = jit(vmap(simulate_single_traj_rotating_frame, in_axes=(None, 0, 0, None, None, None, None, None, None, None), out_axes=0))
 
-def simulate_batch_rotating_frame(u_traj, psi_0_j, dt, U_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j, I_imag_j, number_collapse_ops, number_trajectories, number_time_steps):
+# def create_sim_forward_vmap_rotating_frame(H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j):
+#     def simulate_single_traj_rotating_frame(u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt):
+#         def step_fn(carry, inputs):
+#             psi, time_idx = carry
+#             dW_r, dW_i, u = inputs
+
+#             # Get time-dependent operators for current time step
+#             H_c_tilde_j = H_control_tilde_j[time_idx]
+#             L_tilde_j = L_operators_tilde_j[time_idx]
+#             L_unitary_tilde_j = L_operators_unitary_tilde_j[time_idx]
+#             LdagL_tilde_j = LdagL_operators_tilde_j[time_idx]
+
+#             psi_next = em_step(psi, dW_r, dW_i, u, dt,
+#                               H_c_tilde_j, L_tilde_j, L_unitary_tilde_j, LdagL_tilde_j, I_imag_j)
+#             return (psi_next, time_idx + 1), psi_next
+
+#         inputs = (dW_real_traj, dW_imag_traj, u_traj)
+#         _, traj = scan(step_fn, (psi_0_j, 0), inputs)
+#         return traj
+
+#     sim_forward_vmap_rotating_frame = vmap(simulate_single_traj_rotating_frame, in_axes=(None, 0, 0, None, None), out_axes=0)
+
+#     return jit(sim_forward_vmap_rotating_frame)
+
+# # @partial(jit, stat# ic_argnames=['number_collapse_ops','number_trajectories'])
+# def simulate_batch_rotating_frame(u_traj, psi_0_np, dt, U_j, number_collapse_ops, number_trajectories, number_time_steps, sim_forward_vmap_rotating_frame):
+
+#     dW_real_j, dW_imag_j = create_jax_noise_traj_arrays(number_collapse_ops, number_trajectories, number_time_steps, dt)
+
+#     all_trajs_rotating = sim_forward_vmap_rotating_frame(
+#         u_traj, dW_real_j, dW_imag_j, psi_0_np, dt)
+
+#     all_trajs = U_j @ all_trajs_rotating
+#     return all_trajs
+
+def simulate_batch_rotating_frame(u_traj, psi_0_j, dt, U_j, H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j, number_collapse_ops, number_trajectories, number_time_steps):
 
     dW_real_j, dW_imag_j = create_jax_noise_traj_arrays(number_collapse_ops, number_trajectories, number_time_steps, dt)
 
-    all_trajs_rotating = sim_forward_vmap_rotating_frame(
-        u_traj, dW_real_j, dW_imag_j, psi_0_j, dt, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j, I_imag_j)
+    all_trajs_rotating = sim_forward_vmap_rotating_frame(u_traj, dW_real_j, dW_imag_j, psi_0_j, dt, 
+    H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j)
 
-    all_trajs = U_j @ all_trajs_rotating   
-    return all_trajs
+    # all_trajs = U_j @ all_trajs_rotating
+    return all_trajs_rotating
 
     
 """END simulation functions"""
@@ -579,14 +630,14 @@ def main():
     target_state = "D_H"
     # no. of Trajectories for optimization & simulation
     number_trajectories_opt = 30
-    number_trajectories_sim = 30
+    number_trajectories_sim = 500
     # set control weight
     control_weight = 0.0001
 
     # Define time array for the simulation
     t_start = 0
     t_end = 1000  # ps
-    dt = 0.005      # time step in ps
+    dt = 0.01      # time step in ps
     t_array = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
 
     # Define control input guess
@@ -598,26 +649,42 @@ def main():
     # plot_control_field_fft( control_FF_guess, t_array )
 
     # set up JAX simulation matrices
-    H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j = \
+    H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, L_operators_unitary_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j = \
         jax_sim_setup(init_state,target_state,polarization_overlaps,par_QD)
     number_collapse_ops = L_operators_j.shape[0]
     
     # transform to rotating frame
-    U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j = \
+    U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j = \
         transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j)
 
+    # # compile the simulation function
+    # sim_forward_vmap_rotating_frame = create_sim_forward_vmap_rotating_frame(H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j)
+    
+    # convert the necessary JAX arrays back to Numpy which are used as constant arguments over all simulations
+    # psi_0_np, H_control_tilde_np, L_operators_tilde_np, L_operators_unitary_tilde_np, LdagL_operators_tilde_np, I_imag_np = \
+    #     np.array(psi_0_j), np.array(H_control_tilde_j), np.array(L_operators_tilde_j), np.array(L_operators_unitary_tilde_j), np.array(LdagL_operators_tilde_j), np.array(I_imag_j)
+    
     # # optimize control guess
     # dW_real_opt_j, dW_imag_opt_j = create_jax_noise_traj_arrays(number_trajectories_opt, len(t_array), dt)
     # control_FF_opt_bfgs = optimize_u_traj(control_FF_guess_array, control_weight, dW_real_opt_j, dW_imag_opt_j, psi_0_j, psi_T_j, dt, H_0_j, H_control_j, L_operators_j, LdagL_operators_j, I_imag_j)
 
-    # simulate the system with the guess
+#     # simulate the system with the guess
+#     start_time = time.time()
+# #     profiler.start_trace("/tmp/jax-trace", create_perfetto_link=True)
+#     all_trajs = simulate_batch_rotating_frame(control_FF_guess_array, psi_0_j, dt, U_j, number_collapse_ops, number_trajectories_sim, len(t_array), sim_forward_vmap_rotating_frame)
+#     all_trajs = np.array(all_trajs)    
+# #     profiler.stop_trace()
+#     end_time = time.time()
+#     simulation_time = end_time - start_time
+#     print(f"Simulation completed in {simulation_time:.2f} seconds")
+
     start_time = time.time()
-    all_trajs = simulate_batch_rotating_frame(control_FF_guess_array, psi_0_j, dt, U_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, LdagL_operators_tilde_j, I_imag_j, number_collapse_ops, number_trajectories_sim, len(t_array))
+    all_trajs = simulate_batch_rotating_frame(control_FF_guess_array, psi_0_j, dt, U_j, H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j, number_collapse_ops, number_trajectories_sim, len(t_array))
     all_trajs = np.array(all_trajs)    
     end_time = time.time()
     simulation_time = end_time - start_time
     print(f"Simulation completed in {simulation_time:.2f} seconds")
-
+    
     # plot population trajectories
     plot_population_trajectories(all_trajs,t_array)
 
