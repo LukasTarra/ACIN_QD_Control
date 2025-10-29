@@ -82,6 +82,53 @@ def create_QD_hamiltonian_terms_and_states(params):
 
     return H_QD, H_bx, H_bz, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton
 
+def create_dressed_energies_and_states(params):
+    # parameters
+    E_G = 0               # Ground state energy (0 by definition)
+    E_X_H = params.E_X_H  # Exciton horizontal energy
+    E_X_V = params.E_X_V  # Exciton vertical energy
+    E_D_H = params.E_D_H  # Dark exciton horizontal energy
+    E_D_V = params.E_D_V  # Dark exciton vertical energy
+    E_B = params.E_XX     # Biexciton energy
+    mu_b = params.mu_B    # Bohr magneton
+    bx = params.B_x       # Magnetic field in x direction
+    g_ex = params.g_ex    # Electron g factor
+    g_hx = params.g_hx    # Hole g factor
+    # abbreviation for the Hamiltonian
+    j_plus =  -0.5 * mu_b * bx * (g_hx + g_ex)
+    j_minus =  -0.5 * mu_b * bx * (g_hx - g_ex)
+    # avoid division by 
+    # define new eigenenergies and eigenvectors (dressed states)
+    _,_,_, ground_state, exciton_x, exciton_y, dark_exciton_x, dark_exciton_y, biexciton = create_QD_hamiltonian_terms_and_states(params)
+    E_G_dressed = E_G #stays the same
+    E_X_H_dressed = 0.5* ( np.sqrt( (E_X_H-E_D_H)**2 + 4*j_plus**2 ) + E_X_H + E_D_H )
+    E_D_H_dressed = 0.5* (-np.sqrt( (E_X_H-E_D_H)**2 + 4*j_plus**2 ) + E_X_H + E_D_H )
+    if np.abs(j_minus) < 1e-10:
+        print("j_minus very small or zero. Falling back to non-dressed state in y direction.")
+        E_X_V_dressed = E_X_V
+        E_D_V_dressed = E_D_V
+    else:
+        E_X_V_dressed = 0.5* ( np.sqrt( (E_X_V-E_D_V)**2 + 4*j_minus**2 ) + E_X_V + E_D_V )
+        E_D_V_dressed = 0.5* (-np.sqrt( (E_X_V-E_D_V)**2 + 4*j_minus**2 ) + E_X_V + E_D_V )
+    E_B_dressed = E_B #stays the same
+    ground_state_dressed = ground_state # stays the same
+    exciton_x_dressed = normalize_psi(
+        (np.sqrt( (E_X_H-E_D_H)**2 + 4*j_plus**2 ) + E_X_H - E_D_H)/(2*j_plus)*exciton_x + dark_exciton_x )
+    if np.abs(j_minus) < 1e-10:
+        exciton_y_dressed = exciton_y
+    else:
+        exciton_y_dressed = normalize_psi(
+            (np.sqrt( (E_X_V-E_D_V)**2 + 4*j_minus**2 ) + E_X_V - E_D_V)/(2*j_minus)*exciton_y + dark_exciton_y )
+    dark_exciton_x_dressed = normalize_psi(
+        (-np.sqrt( (E_X_H-E_D_H)**2 + 4*j_plus**2 ) + E_X_H - E_D_H)/(2*j_plus)*exciton_x + dark_exciton_x )
+    if np.abs(j_minus) < 1e-10:
+        dark_exciton_y_dressed = dark_exciton_y
+    else:
+        dark_exciton_y_dressed = normalize_psi(
+            (-np.sqrt( (E_X_V-E_D_V)**2 + 4*j_minus**2 ) + E_X_V - E_D_V)/(2*j_minus)*exciton_y + dark_exciton_y )
+    biexciton_dressed = biexciton #stays the same
+
+    return E_G_dressed, E_X_H_dressed, E_X_V_dressed, E_D_H_dressed, E_D_V_dressed, E_B_dressed, ground_state_dressed, exciton_x_dressed, exciton_y_dressed, dark_exciton_x_dressed, dark_exciton_y_dressed, biexciton_dressed
 
 def create_control_field(times, control_input):
     """
@@ -263,6 +310,32 @@ def plot_population_trajectories(all_trajs,t_array):
     plt.tight_layout()
     plt.show()
 
+def plot_mean_population_trajectories(all_trajs, t_array):
+    """Plot mean population trajectories for all states."""
+    # Convert to numpy array once
+    all_trajs_np = np.array(all_trajs)
+    # Compute all populations at once using numpy operations
+    real_parts = all_trajs_np[:, :, :N_STATES, 0]  # Shape: (n_trajs, n_times, N_STATES)
+    imag_parts = all_trajs_np[:, :, N_STATES:2*N_STATES, 0]  # Shape: (n_trajs, n_times, N_STATES)
+    # Compute populations: |psi|^2 = Re^2 + Im^2
+    populations = real_parts**2 + imag_parts**2  # Shape: (n_trajs, n_times, N_STATES)
+    # Vectorized mean calculation
+    mean_populations = np.mean(populations, axis=0)  # Shape: (n_times, N_STATES)
+    # Create figure with one subplot
+    fig, ax1 = plt.subplots(1, 1, figsize=(10, 6))
+    # Plot mean population trajectories
+    state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
+    for i in range(N_STATES):
+        ax1.plot(t_array, mean_populations[:, i], 
+                label=f"|{i}> = {state_labels[i]}")
+    ax1.set_xlabel("Time (ps)")
+    ax1.set_ylabel("Population")
+    ax1.set_title("Mean Population Trajectories")
+    ax1.legend()
+    ax1.grid()
+    plt.tight_layout()
+    plt.show()
+
 def plot_control_field(control_FF, t_array):
     if callable(control_FF):
         control_FF_array = control_FF(t_array)
@@ -316,6 +389,26 @@ def create_jax_noise_traj_arrays(number_collapse, number_trajectories, number_st
 
 #     return dW_real_j, dW_imag_j
 
+# Timer class for simple runtime checking
+class Timer:
+    def __init__(self):
+        self.start_time = None
+        self.end_time = None
+    
+    def start(self):
+        self.start_time = time.perf_counter()
+    
+    def stop(self):
+        self.end_time = time.perf_counter()
+        return self.elapsed()
+    
+    def elapsed(self):
+        if self.start_time is None:
+            raise ValueError("Timer not started")
+        if self.end_time is None:
+            return time.perf_counter() - self.start_time
+        return self.end_time - self.start_time
+
 
 
 """END helper functions"""
@@ -363,13 +456,34 @@ def jax_sim_setup(psi_0_choice,psi_T_choice,pol_overlaps,params):
     
     return H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, L_operators_unitary_j, LdagL_operators_j, psi_0_j, psi_T_j, I_imag_j
 
-def transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j):
+def transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, params):
 
     # Compute H_0_complex_times_t with dimensions (len(t_array), n, n)
     H_0_complex         = real_to_complex_block(H_0_j)
     H_0_complex_times_t = jnp.einsum('ij,t->tij', H_0_complex, t_array)
     # Compute unitary transformation U (matrix exponential)
-    U                   = expm(-1j * H_0_complex_times_t)
+    U_old                = expm(-1j * H_0_complex_times_t)
+
+    # compute U from exponentials in the dressed states
+    # load dressed states
+    E_G_dressed, E_X_H_dressed, E_X_V_dressed, E_D_H_dressed, E_D_V_dressed, E_B_dressed, ground_state_dressed, exciton_x_dressed, exciton_y_dressed, dark_exciton_x_dressed, dark_exciton_y_dressed, biexciton_dressed = create_dressed_energies_and_states(params)
+    dressed_states = np.column_stack([
+        ground_state_dressed,
+        exciton_x_dressed,
+        exciton_y_dressed,
+        dark_exciton_x_dressed,
+        dark_exciton_y_dressed,
+        biexciton_dressed
+    ])
+    # compute U and transform it
+    U_dressed = np.zeros((len(t_array), len(ground_state_dressed), len(ground_state_dressed)), dtype=np.complex128)
+    E_dressed = np.array([E_G_dressed, E_X_H_dressed, E_X_V_dressed, E_D_H_dressed, E_D_V_dressed, E_B_dressed])
+    for i, t in enumerate(t_array):
+        U_dressed[i] = np.diag(np.exp(-1j * E_dressed * t / params.hbar))
+
+    U = dressed_states.conj().T @ U_dressed @ dressed_states
+
+    # compute the rest
     U_dag               = U.conj().transpose((0,2,1)) # Adjoint of unitary transform
     # transform the relevant matrices to rotating frame
     H_control_complex   = real_to_complex_block(H_control_j)
@@ -378,40 +492,40 @@ def transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, 
     dim_half = H_control_j.shape[-1] // 2
     N_collapse = L_operators_j.shape[0]
     L_operators_tilde = np.zeros((len(t_array),N_collapse,dim_half,dim_half),dtype=np.complex128)
-    L_operators_dag_tilde = np.zeros((len(t_array),N_collapse,dim_half,dim_half),dtype=np.complex128)
+    # L_operators_dag_tilde = np.zeros((len(t_array),N_collapse,dim_half,dim_half),dtype=np.complex128)
     LdagL_operators_tilde = np.zeros((len(t_array),N_collapse,dim_half,dim_half),dtype=np.complex128)
     for k in range(N_collapse):
         L_operator_complex = real_to_complex_block(L_operators_j[k,:,:])
-        L_operator_dag_complex = real_to_complex_block(L_operators_transposed_j[k,:,:])
+        # L_operator_dag_complex = real_to_complex_block(L_operators_transposed_j[k,:,:])
         LdagL_operator_complex = real_to_complex_block(LdagL_operators_j[k,:,:])
         # Apply unitary transformation to L operators
         L_operators_tilde[:,k,:,:] = U_dag @ L_operator_complex @ U
-        L_operators_dag_tilde[:,k,:,:] = U_dag @ L_operator_dag_complex @ U
+        # L_operators_dag_tilde[:,k,:,:] = U_dag @ L_operator_dag_complex @ U
         LdagL_operators_tilde[:,k,:,:] = U_dag @ LdagL_operator_complex @ U
     # transform back to the real representations using a vmap for time
     time_matrices_complex_to_real_block_vmap = vmap(complex_to_real_block, in_axes=(0), out_axes=0)
     H_control_tilde_j = time_matrices_complex_to_real_block_vmap(H_control_tilde)
     L_operators_tilde_j = np.zeros((len(t_array),N_collapse,dim,dim))
-    L_operators_transposed_tilde_j = np.zeros((len(t_array),N_collapse,dim,dim))
+    # L_operators_transposed_tilde_j = np.zeros((len(t_array),N_collapse,dim,dim))
     LdagL_operators_tilde_j = np.zeros((len(t_array),N_collapse,dim,dim))
     for k in range(N_collapse):
         L_operators_tilde_j[:,k,:,:] = time_matrices_complex_to_real_block_vmap(L_operators_tilde[:,k,:,:])
-        L_operators_transposed_tilde_j[:,k,:,:] = time_matrices_complex_to_real_block_vmap(L_operators_dag_tilde[:,k,:,:])
+        # L_operators_transposed_tilde_j[:,k,:,:] = time_matrices_complex_to_real_block_vmap(L_operators_dag_tilde[:,k,:,:])
         LdagL_operators_tilde_j[:,k,:,:] = time_matrices_complex_to_real_block_vmap(LdagL_operators_tilde[:,k,:,:])
     # convert resulting arrays to JAX arrays
     U_j = jnp.array( time_matrices_complex_to_real_block_vmap(U) )
     U_dag_j = jnp.array( time_matrices_complex_to_real_block_vmap(U_dag) )
     H_control_tilde_j = jnp.array(H_control_tilde_j)
     L_operators_tilde_j = jnp.array(L_operators_tilde_j)
-    L_operators_transposed_tilde_j = jnp.array(L_operators_transposed_tilde_j)
-    L_operators_unitary_tilde_j = 0.5*( L_operators_tilde_j + L_operators_transposed_tilde_j )
+    # L_operators_transposed_tilde_j = jnp.array(L_operators_transposed_tilde_j)
+    L_operators_unitary_tilde_j = 0.5*( L_operators_tilde_j + L_operators_tilde_j.transpose((0,1,3,2)) )
     LdagL_operators_tilde_j = jnp.array(LdagL_operators_tilde_j)
     
-    return U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j
+    return U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j
 
 @jit
 def normalize_psi(psi):
-    regularization = 1e-12 # prevent division by zero
+    regularization = 1e-14 # prevent division by zero
     norm = jnp.linalg.norm(psi)
     return psi / (norm + regularization)
 
@@ -450,10 +564,11 @@ def em_step(psi_n, dW_real, dW_imag, u, dt, H_control_j, L_operators_j, L_operat
 
     # 1. Deterministic drift part (Runge-Kutta 2nd order)
     k1 = f_drift(psi_n)
-    drift = f_drift(psi_n + 0.5 * dt * k1)
+    drift = f_drift( normalize_psi(psi_n + 0.5 * dt * k1) )
     # Compute intermediate state
     psi_interm = normalize_psi(psi_n + drift * dt)
-
+    # psi_interm = normalize_psi(psi_n + k1 * dt)
+    
     # 2. Stochastic diffusion part (optimized)
     # L_unitary = 0.5 * (L_operators_j + L_operators_transposed_j)
     L_unitary_psi_interm = L_operators_unitary_j @ psi_interm
@@ -477,6 +592,9 @@ def em_step(psi_n, dW_real, dW_imag, u, dt, H_control_j, L_operators_j, L_operat
     psi_next = psi_interm + diffusion
     return normalize_psi(psi_next)
 
+    # return psi_interm
+ 
+    
 # def simulate_single_traj(u_traj, dW_real_traj, dW_imag_traj, psi_0_j, dt, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, I_imag_j):
 #     def step_fn(carry, inputs):
 #         psi = carry
@@ -576,16 +694,20 @@ sim_forward_vmap_rotating_frame = jit(vmap(simulate_single_traj_rotating_frame, 
 #     all_trajs = U_j @ all_trajs_rotating
 #     return all_trajs
 
-def simulate_batch_rotating_frame(u_traj, psi_0_j, dt, U_j, H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j, number_collapse_ops, number_trajectories, number_time_steps):
+def simulate_batch_rotating_frame(u_traj, psi_0_j, dt, U_j, H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j, number_collapse_ops, number_trajectories, number_time_steps, rotating_traj_yesno=True):
 
     dW_real_j, dW_imag_j = create_jax_noise_traj_arrays(number_collapse_ops, number_trajectories, number_time_steps, dt)
 
     all_trajs_rotating = sim_forward_vmap_rotating_frame(u_traj, dW_real_j, dW_imag_j, psi_0_j, dt, 
     H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j)
 
-    # all_trajs = U_j @ all_trajs_rotating
-    return all_trajs_rotating
-
+    if rotating_traj_yesno is True:
+        psi_end_j = jnp.mean(all_trajs_rotating[:,-1,:,:],axis=(0))
+        return all_trajs_rotating, psi_end_j
+    else:
+        all_trajs = U_j @ all_trajs_rotating
+        psi_end_j = jnp.mean(all_trajs[:,-1,:,:],axis=(0))
+        return all_trajs, psi_end_j
     
 """END simulation functions"""
 
@@ -621,6 +743,9 @@ def optimize_u_traj(u_init, control_weight, dW_real_opt_j, dW_imag_opt_j, psi_0_
 """START main function"""
 
 def main():
+    # Load a timer
+    timer = Timer()
+    
     # Load parameters
     par_QD = get_parameters()
     # Polarization overlaps (e_H * e_L, e_V * e_L)
@@ -630,18 +755,18 @@ def main():
     target_state = "D_H"
     # no. of Trajectories for optimization & simulation
     number_trajectories_opt = 30
-    number_trajectories_sim = 500
+    number_trajectories_sim = 1000
     # set control weight
     control_weight = 0.0001
 
     # Define time array for the simulation
     t_start = 0
     t_end = 1000  # ps
-    dt = 0.01      # time step in ps
+    dt = 0.05    # time step in ps
     t_array = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
 
     # Define control input guess
-    control_FF_guess = lambda t: 1 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
+    control_FF_guess = lambda t: 0 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
     # control_FF_guess = lambda t: 0*t
     control_FF_guess_array = control_FF_guess(t_array)
     # control_FF_guess_array = np.zeros(len(t_array))
@@ -654,8 +779,8 @@ def main():
     number_collapse_ops = L_operators_j.shape[0]
     
     # transform to rotating frame
-    U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_transposed_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j = \
-        transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j)
+    U_j, U_dag_j, H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j = \
+        transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, par_QD)
 
     # # compile the simulation function
     # sim_forward_vmap_rotating_frame = create_sim_forward_vmap_rotating_frame(H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j)
@@ -678,16 +803,17 @@ def main():
 #     simulation_time = end_time - start_time
 #     print(f"Simulation completed in {simulation_time:.2f} seconds")
 
-    start_time = time.time()
-    all_trajs = simulate_batch_rotating_frame(control_FF_guess_array, psi_0_j, dt, U_j, H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j, number_collapse_ops, number_trajectories_sim, len(t_array))
-    all_trajs = np.array(all_trajs)    
-    end_time = time.time()
-    simulation_time = end_time - start_time
+
+    timer.start()
+    all_trajs, psi_end_j = simulate_batch_rotating_frame(control_FF_guess_array, psi_0_j, dt, U_j, H_control_tilde_j, L_operators_tilde_j, L_operators_unitary_tilde_j, LdagL_operators_tilde_j, I_imag_j, number_collapse_ops, number_trajectories_sim, len(t_array))
+    all_trajs = np.array(all_trajs)
+    simulation_time = timer.stop()
     print(f"Simulation completed in {simulation_time:.2f} seconds")
     
     # plot population trajectories
-    plot_population_trajectories(all_trajs,t_array)
+    plot_mean_population_trajectories(all_trajs,t_array)
 
 if __name__ == "__main__":
+
     main()
     # cProfile.run('main()')
