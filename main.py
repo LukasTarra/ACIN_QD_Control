@@ -4,7 +4,7 @@ from qutip import basis, Qobj, mesolve
 import matplotlib.pyplot as plt
 
 # user-defined functions & packages
-from getparameters import get_parameters
+from getparameters import get_parameters_QD, get_default_pulse
 
 # Helper functions
 def create_hamiltonian_terms(params):
@@ -259,20 +259,22 @@ class Results:
 
 if __name__ == "__main__":
     # Load parameters
-    par_QD = get_parameters()
+    par_QD = get_parameters_QD()
     # Polarization overlaps (e_H * e_L, e_V * e_L)
     polarization_overlaps = {"H": 1, "V": 0}
     # Choose initial state (G, X_H, X_V, D_H, D_V, B)
-    init_state = "B"
+    init_state = "G"
 
     # Define time array for the simulation
     t_start = 0
     t_end = 1000  # ps
-    dt = 0.05      # time step in ps
+    dt = 0.001      # time step in ps
     t_array = np.linspace(t_start, t_end, int((t_end - t_start) / dt) + 1)
 
     # Define control input
-    control_FF = lambda t: 0 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
+    init_pulse_default = get_default_pulse("initialization")
+    control_FF = init_pulse_default.get_chirped_pulse_function()
+    # control_FF = lambda t: 0 * (1/(1+ t**2/100)) * np.sin(2 * np.pi * t)
     plot_control_field(control_FF, t_array)
     plot_control_field_fft( control_FF, t_array )
     # carry out the simulation

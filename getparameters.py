@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Simulation Parameters Module
+Simulation & Pulse Parameters Module
 ===========================
 Simple parameter class that can be imported into other files.
 Change PARAMETER_SET_ID to select different parameter configurations.
@@ -16,10 +16,10 @@ import numpy as np
 PARAMETER_SET_ID = 1  # Options: 1, 2
 
 # ============================================================================
-# PARAMETERS CLASS
+# PARAMETERS CLASSES
 # ============================================================================
 
-class Parameters:
+class ParametersQD:
     """Simulation parameters class."""
     
     def __init__(self, set_id=PARAMETER_SET_ID):
@@ -63,28 +63,6 @@ class Parameters:
         self.B_x            = 3.4 #B field in x direction (T)
         self.B_z            = 0 #B field in z direction (T)
         
-        #initialization pulse
-        self.hbar_omega_P_i = 1.5610e3 #center frequency (meV)
-        self.tau_0_P_i      = 2.9 #non-chirped pulse width (ps)
-        self.GDD_P_i        = 0 #group delay dispersion (ps^2)
-        self.zeta_P_i       = 0 #laser polarization angle, 0 for horizontal (rad)
-        self.Theta_P_i      = 4.5*np.pi #pulse area (1)
-        self.delta_t_P_i    = 0 #time delay (ps)
-        #storage pulse
-        self.hbar_omega_P_s = 1.5590e3 #center frequency (meV)
-        self.tau_0_P_s      = 2.9 #non-chirped pulse width (ps)
-        self.GDD_P_s        = -45 #group delay dispersion (ps^2)
-        self.zeta_P_s       = 0 #laser polarization angle, 0 for horizontal (rad)
-        self.Theta_P_s      = 3.5*np.pi #pulse area (1)
-        self.delta_t_P_s    = 70 #time delay (ps)
-        #retrieval pulse
-        self.hbar_omega_P_r = 1.5590e3 #center frequency (meV)
-        self.tau_0_P_r      = 2.9 #non-chirped pulse width (ps)
-        self.GDD_P_r        = 45 #group delay dispersion (ps^2)
-        self.zeta_P_r       = 0 #laser polarization angle, 0 for horizontal (rad)
-        self.Theta_P_r      = 3.5*np.pi #pulse area (1)
-        self.delta_t_P_r    = 1420 #time delay (ps)
-        
     
     def _set_alternative_parameters(self):
         """High-fidelity simulation parameters."""
@@ -104,82 +82,36 @@ class Parameters:
             print(f"\n{'-'*50}")
             print("QUANTUM DOT PROPERTIES")
             print(f"{'-'*50}")
-            print(f"Exciton Energy (ℏωₓ):           {self.hbar_omega_X:>8.1f} meV")
-            print(f"Dark Exciton Energy (ℏωᴅ):      {self.hbar_omega_D:>8.1f} meV")
-            print(f"Biexciton Binding Energy (Eᴃ):   {self.E_B:>8.1f} meV")
-            print(f"Biexciton Energy (Eₓₓ):          {self.E_XX:>8.1f} meV")
-            print(f"Exciton Fine Structure (δₓ):     {self.delta_X*1000:>8.2f} μeV")
-            print(f"Dark Exciton Fine Structure:     {self.delta_D*1000:>8.2f} μeV")
+            print(f"Exciton Energy:                 {self.hbar_omega_X:>8.1f} meV")
+            print(f"Dark Exciton Energy:            {self.hbar_omega_D:>8.1f} meV")
+            print(f"Biexciton Binding Energy:       {self.E_B:>8.1f} meV")
+            print(f"Biexciton Energy:               {self.E_XX:>8.1f} meV")
+            print(f"Exciton Fine Structure:         {self.delta_X*1000:>8.2f}  ueV")
+            print(f"Dark Exciton Fine Structure:    {self.delta_D*1000:>8.2f}  ueV")
             
             print(f"\nSplit Exciton Energies:")
-            print(f"  Horizontal Exciton (Eₓₕ):      {self.E_X_H:>8.3f} meV")
-            print(f"  Vertical Exciton (Eₓᵥ):        {self.E_X_V:>8.3f} meV")
-            print(f"  Horizontal Dark (Eᴅₕ):         {self.E_D_H:>8.3f} meV")  
-            print(f"  Vertical Dark (Eᴅᵥ):           {self.E_D_V:>8.3f} meV")
+            print(f"  Horizontal Exciton:           {self.E_X_H:>8.3f} meV")
+            print(f"  Vertical Exciton:             {self.E_X_V:>8.3f} meV")
+            print(f"  Horizontal Dark:              {self.E_D_H:>8.3f} meV")  
+            print(f"  Vertical Dark:                {self.E_D_V:>8.3f} meV")
             
             print(f"\nCarrier Properties:")
-            print(f"  Hole g-factor (gₕₓ):           {self.g_hx:>8.3f}")
-            print(f"  Electron g-factor (gₑₓ):       {self.g_ex:>8.3f}")
+            print(f"  Hole g-factor:                {self.g_hx:>8.3f}")
+            print(f"  Electron g-factor:            {self.g_ex:>8.3f}")
             
             print(f"\nDynamics & Environment:")
-            print(f"  Exciton Lifetime (Γₓ⁻¹):       {self.Gamma_X_inv:>8.0f} ps")
-            print(f"  Biexciton Lifetime (Γₓₓ⁻¹):    {self.Gamma_XX_inv:>8.0f} ps")
-            print(f"  QD Size:                       {self.QD_size:>8.1f} nm")
-            print(f"  Temperature:                   {self.temperature:>8.1f} K")
-            print(f"  Magnetic Field (Bₓ):           {self.B_x:>8.1f} T")
-            print(f"  Magnetic Field (Bz):           {self.B_z:>8.1f} T")
-        
-        # Pulse parameters
-        pulse_params = ['hbar_omega_P_i', 'hbar_omega_P_s']
-        if any(hasattr(self, param) for param in pulse_params):
-            print(f"\n{'-'*50}")
-            print("OPTICAL PULSE PARAMETERS")
-            print(f"{'-'*50}")
-            
-            # Initialization pulse
-            if hasattr(self, 'hbar_omega_P_i'):
-                print(f"Initialization Pulse:")
-                print(f"  Center Frequency (ℏωₚᵢ):      {self.hbar_omega_P_i:>8.1f} meV")
-                print(f"  Pulse Width (τ₀):             {self.tau_0_P_i:>8.1f} ps")
-                print(f"  Group Delay Dispersion:       {self.GDD_P_i:>8.1f} ps²")
-                print(f"  Polarization Angle (ζ):       {self.zeta_P_i:>8.2f} rad")
-                print(f"  Pulse Area (Θ):               {self.Theta_P_i/np.pi:>8.1f}π")
-                print(f"  Time Delay (Δt):              {self.delta_t_P_i:>8.1f} ps")
-            
-            # Storage pulse
-            if hasattr(self, 'hbar_omega_P_s'):
-                print(f"\nStorage Pulse:")
-                print(f"  Center Frequency (ℏωₚₛ):      {self.hbar_omega_P_s:>8.1f} meV")
-                print(f"  Pulse Width (τ₀):             {self.tau_0_P_s:>8.1f} ps")
-                print(f"  Group Delay Dispersion:       {self.GDD_P_s:>8.1f} ps²")
-                print(f"  Polarization Angle (ζ):       {self.zeta_P_s:>8.2f} rad")
-                print(f"  Pulse Area (Θ):               {self.Theta_P_s/np.pi:>8.1f}π")
-                print(f"  Time Delay (Δt):              {self.delta_t_P_s:>8.1f} ps")
-                
-            # Retrieval pulse
-            if hasattr(self, 'hbar_omega_P_r'):
-                print(f"\nRetrieval Pulse:")
-                print(f"  Center Frequency (ℏωₚr):      {self.hbar_omega_P_r:>8.1f} meV")
-                print(f"  Pulse Width (τ₀):             {self.tau_0_P_r:>8.1f} ps")
-                print(f"  Group Delay Dispersion:       {self.GDD_P_r:>8.1f} ps²")
-                print(f"  Polarization Angle (ζ):       {self.zeta_P_r:>8.2f} rad")
-                print(f"  Pulse Area (Θ):               {self.Theta_P_r/np.pi:>8.1f}π")
-                print(f"  Time Delay (Δt):              {self.delta_t_P_r:>8.1f} ps")
+            print(f"  Exciton Lifetime:             {self.Gamma_X_inv:>8.0f} ps")
+            print(f"  Biexciton Lifetime:           {self.Gamma_XX_inv:>8.0f} ps")
+            print(f"  QD Size:                      {self.QD_size:>8.1f} nm")
+            print(f"  Temperature:                  {self.temperature:>8.1f} K")
+            print(f"  Magnetic Field x:               {self.B_x:>8.1f} T")
+            print(f"  Magnetic Field z:             {self.B_z:>8.1f} T")       
         
         # Derived quantities and analysis
         if hasattr(self, 'hbar_omega_X'):
             print(f"\n{'-'*50}")
             print("DERIVED QUANTITIES & ANALYSIS")
             print(f"{'-'*50}")
-            
-            # Energy detunings
-            if hasattr(self, 'hbar_omega_P_i'):
-                detuning_i = self.hbar_omega_P_i - self.hbar_omega_X
-                detuning_s = self.hbar_omega_P_s - self.hbar_omega_X
-                detuning_r = self.hbar_omega_P_r - self.hbar_omega_X
-                print(f"Initialization Detuning:       {detuning_i:>8.2f} meV")
-                print(f"Storage Detuning:              {detuning_s:>8.2f} meV")
-                print(f"Retrieval Detuning:            {detuning_r:>8.2f} meV")
             
             # Zeeman splitting in magnetic field
             B_total = np.sqrt(self.B_x**2 + self.B_z**2)
@@ -193,31 +125,113 @@ class Parameters:
             # Thermal energy comparison
             kT = self.k_B * self.temperature  # meV
             print(f"Thermal Energy (kT):           {kT:>8.3f} meV")
-            print(f"kT/ℏωₓ Ratio:                  {kT/self.hbar_omega_X:>8.6f}")
+            print(f"kT/hbar_omega_x Ratio:         {kT/self.hbar_omega_X:>8.6f}")
             
             # Fine structure vs. thermal broadening
             fs_ratio = (self.delta_X) / kT
             print(f"Fine Structure/Thermal:        {fs_ratio:>8.2f}")
+
             
-            # Pulse timing analysis
-            if hasattr(self, 'delta_t_P_s'):
-                storage_time = self.delta_t_P_s - self.delta_t_P_i
-                coherence_periods = storage_time / self.Gamma_XX_inv
-                print(f"Storage Duration:              {storage_time:>8.1f} ps")
-                print(f"Storage/Coherence Ratio:       {coherence_periods:>8.2f}")
-        
         print(f"\n{'='*50}")
         print("END PARAMETER SUMMARY")
         print(f"{'='*50}\n")
 
+
+class DefaultPulse:
+    def __init__(self, pulse_id, t_pulse_center=0):
+        self.pulse_id = pulse_id
+        self.t_pulse_center = t_pulse_center
+        self._load_default_pulse(pulse_id)
+    
+    def _load_default_pulse(self, pulse_id):
+        #general parameters
+        self.hbar           = 0.6582173 #reduced Planck constant (meV*ps)
+    
+        #initialization pulse
+        if pulse_id == "initialization":
+            self.hbar_omega_P = 1.5610e3 #center frequency (meV)
+            self.tau_0_P      = 2.9 #non-chirped pulse width (ps)
+            self.GDD_P        = 0 #group delay dispersion (ps^2)
+            self.Theta_P      = 4.5*np.pi #pulse area (1)
+        #storage pulse
+        elif pulse_id == "storage":
+            self.hbar_omega_P = 1.5590e3 #center frequency (meV)
+            self.tau_0_P      = 2.9 #non-chirped pulse width (ps)
+            self.GDD_P        = -45 #group delay dispersion (ps^2)
+            self.Theta_P      = 3.5*np.pi #pulse area (1)
+        #retrieval pulse
+        elif pulse_id == "retrieval":
+            self.hbar_omega_P = 1.5590e3 #center frequency (meV)
+            self.tau_0_P      = 2.9 #non-chirped pulse width (ps)
+            self.GDD_P        = 45 #group delay dispersion (ps^2)
+            self.Theta_P      = 3.5*np.pi #pulse area (1)
+        else:
+            raise ValueError("Invalid pulse_id. Must be 'initialization', 'storage', or 'retrieval'.")
+
+        # compute the effective pulsewidth
+        self.tau = np.sqrt(self.GDD_P**2 / (self.tau_0_P**2) + self.tau_0_P**2)
+        # compute the simulated pulsewidth
+        self.delta_t_sim = 3*self.tau
+       
+    def get_chirped_pulse_function(self):
+        
+        # Extract pulse parameters
+        omega_P = self.hbar_omega_P / self.hbar  # Convert to angular frequency (rad/ps)
+        tau_0 = self.tau_0_P
+        GDD = self.GDD_P
+        Theta = self.Theta_P
+
+        # compute chirped parameters
+        tau = self.tau
+        a = GDD / (GDD**2 + tau_0**4)
+        
+        # Calculate peak amplitude from pulse area
+        # For a Gaussian pulse: Theta = E0 * tau / sqrt(2*pi)
+        pulse_amplitude = Theta / np.sqrt(2*np.pi * tau * tau_0)
+    
+        # Define the chirped pulse function
+        def chirped_pulse(t):
+            # Gaussian envelope
+            envelope = pulse_amplitude * np.exp(-(t-self.t_pulse_center)**2 / (2 * tau**2))
+        
+            # Chirp phase (includes GDD term)
+            # Phase = omega0*t + GDD*t^2/2
+            phase = (omega_P + 0.5*a*(t-self.t_pulse_center)) * (t-self.t_pulse_center)
+
+            # Return complex electric field
+            return envelope * np.exp(-1j * phase)
+    
+        return chirped_pulse
+
+    def print_summary(self):
+        # Pulse parameters
+        if hasattr(self, "hbar_omega_P"):
+            print(f"\n{'-'*50}")
+            print("OPTICAL PULSE PARAMETERS")
+            print(f"{'-'*50}")
+
+            if self.pulse_id == "initialization":
+                print(f"Initialization Pulse:")
+            if self.pulse_id == "storage":
+                print(f"Storage Pulse:")
+            if self.pulse_id == "retrieval":
+                print(f"Retrieval Pulse:")
+            print(f"  Center Frequency:             {self.hbar_omega_P:>8.1f} meV")
+            print(f"  Pulse Width:                  {self.tau_0_P:>8.1f} ps")
+            print(f"  Group Delay Dispersion:       {self.GDD_P:>8.1f} ps²")
+            print(f"  Pulse Area:                   {self.Theta_P/np.pi:>8.1f}*pi")
+        
 # ============================================================================
 # CONVENIENCE FUNCTIONS
 # ============================================================================
 
-def get_parameters(set_id=1):
+def get_parameters_QD(set_id=1):
     """Get parameters instance."""
-    return Parameters(set_id)
+    return ParametersQD(set_id)
 
+def get_default_pulse(pulse_id, t_pulse_center):
+    return DefaultPulse(pulse_id, t_pulse_center)
+    
 def get_available_parameter_IDs():
     """Return available parameter set IDs."""
     return [1, 2]
@@ -228,8 +242,14 @@ def get_available_parameter_IDs():
 
 if __name__ == "__main__":
     # Test the current parameter set
-    params = get_parameters()
-    params.print_summary()
+    params_QD = get_parameters_QD()
+    params_QD.print_summary()
+    pulse_init = get_default_pulse("initialization", 0)
+    pulse_storage = get_default_pulse("storage", 0)
+    pulse_retrieval = get_default_pulse("retrieval", 0)
+    pulse_init.print_summary()
+    pulse_storage.print_summary()
+    pulse_retrieval.print_summary()
     
     # # Show all available sets
     # print("Available parameter sets:")
