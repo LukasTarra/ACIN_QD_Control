@@ -322,7 +322,7 @@ def plot_mean_population_trajectories(all_trajs, t_array):
     # Vectorized mean calculation
     mean_populations = np.mean(populations, axis=0)  # Shape: (n_times, N_STATES)
     # Create figure with one subplot
-    fig, ax1 = plt.subplots(1, 1, figsize=(10, 6))
+    _, ax1 = plt.subplots(1, 1, figsize=(10, 6))
     # Plot mean population trajectories
     state_labels = ["|G>", "|X_H>", "|X_V>", "|D_H>", "|D_V>", "|B>"]
     for i in range(N_STATES):
@@ -476,9 +476,10 @@ def transform_jax_to_rotating_frame(t_array, H_0_j, H_control_j, L_operators_j, 
     E_dressed = np.array([E_G_dressed, E_X_H_dressed, E_X_V_dressed, E_D_H_dressed, E_D_V_dressed, E_B_dressed])
     for i, t in enumerate(t_array):
         U_dressed[i] = np.diag(np.exp(-1j * E_dressed * t / params.hbar))
-
+        
     U = dressed_states.conj().T @ U_dressed @ dressed_states
-
+    # U = np.tile(np.eye(N_STATES, dtype=np.complex128), (len(t_array), 1, 1))
+    
     # compute the rest
     U_dag               = U.conj().transpose((0,2,1)) # Adjoint of unitary transform
     # transform the relevant matrices to rotating frame
@@ -533,6 +534,7 @@ def em_step(psi_n, dW_real, dW_imag, u_real, u_imag, dt, H_control_j, L_operator
     # Pre-compute total Hamiltonian
     H_total = u_real * H_control_j + u_imag * I_imag_j @ H_control_j
     # H_total = ( u_real + u_imag * I_imag_j ) @ H_control_j + H_control_j.T @ ( u_real - u_imag * I_imag_j )
+    dim_half = psi_n.shape[1] // 2
 
     def f_drift(p):
         # More efficient computation without temporary arrays
@@ -542,7 +544,9 @@ def em_step(psi_n, dW_real, dW_imag, u_real, u_imag, dt, H_control_j, L_operator
         L_unitary_psi = L_operators_unitary_j @ p  # Shape: (N_collapse, dim, 1)
         # Compute expectation values <L_unitary> = psi^dagger @ L_unitary @ psi
         # Reshape psi to (1, dim, 1) for proper broadcasting
-        psi_reshaped = p.reshape(1, -1, 1)  # Shape: (1, dim, 1)
+        psi_reshaped = p.reshape(1, 1, -1)  # Shape: (1, dim, 1)
+        # make the imaginary elements of psi_reshaped negative (to reflect the complex conjugate)
+        psi_reshaped = psi_reshaped.at[:, dim_half:, :].multiply(-1)
         L_unitary_avg = jnp.sum(psi_reshaped * L_unitary_psi, axis=(1, 2), keepdims=True)  # Shape: (N_collapse, 1, 1)
         # Compute LdagL @ psi for all operators at once
         LdagL_psi = LdagL_operators_j @ p  # Shape: (N_collapse, dim, 1)
@@ -558,25 +562,30 @@ def em_step(psi_n, dW_real, dW_imag, u_real, u_imag, dt, H_control_j, L_operator
         hamiltonian_term = -I_imag_j @ (H_total @ p)
 
         return hamiltonian_term + term1 + term2 + term3
-
+        # return hamiltonian_term
+    
     # 1. Deterministic drift part (Runge-Kutta 2nd order)
     k1 = f_drift(psi_n)
     drift = f_drift( normalize_psi(psi_n + 0.5 * dt * k1) )
     # Compute intermediate state
     psi_interm = normalize_psi(psi_n + drift * dt)
     # psi_interm = normalize_psi(psi_n + k1 * dt)
+    # psi_interm = psi_n
     
     # 2. Stochastic diffusion part (optimized)
     # L_unitary = 0.5 * (L_operators_j + L_operators_transposed_j)
     L_unitary_psi_interm = L_operators_unitary_j @ psi_interm
     # Compute expectation values for intermediate state
-    psi_interm_reshaped = psi_interm.reshape(1, -1, 1)
+    psi_interm_reshaped = psi_interm.reshape(1, 1, -1)
+    psi_interm_reshaped = psi_interm_reshaped.at[:, dim_half:, :].multiply(-1)
     L_unitary_avg_interm = jnp.sum(psi_interm_reshaped * L_unitary_psi_interm, 
                                   axis=(1, 2), keepdims=True)
      # Compute L @ psi_interm
     L_psi_interm = L_operators_j @ psi_interm
     # Compute diffusion base: L@psi - <L> * psi
+    
     diffusion_base = L_psi_interm - L_unitary_avg_interm * psi_interm
+
     # Apply stochastic terms with proper broadcasting
     # dW_real and dW_imag have shape (N_collapse,), we need to broadcast to match diffusion_base
     dW_real_broadcast = dW_real.reshape(-1, 1, 1)  # Shape: (N_collapse, 1, 1)
@@ -587,6 +596,7 @@ def em_step(psi_n, dW_real, dW_imag, u_real, u_imag, dt, H_control_j, L_operator
     diffusion = real_part + imag_part
     # Combine using Euler-Maruyama
     psi_next = psi_interm + diffusion
+
     return normalize_psi(psi_next)
 
     # return psi_interm
@@ -752,7 +762,7 @@ def main():
     # Polarization overlaps (e_H * e_L, e_V * e_L)
     polarization_overlaps = {"H": 1, "V": 0}
     # Choose initial state (G, X_H, X_V, D_H, D_V, B)
-    init_state = "G"
+    init_state = "B"
     target_state = "D_H"
     # no. of Trajectories for optimization & simulation
     number_trajectories_opt = 30
@@ -769,7 +779,15 @@ def main():
     omega_0_array = np.linalg.eigvals(real_to_complex_block(H_0_j))
     nu_0_max = np.max(np.real(omega_0_array)) / (2*np.pi)
     # sample time fot the optimization windows
-    dt_opt = 0.2/nu_0_max
+
+
+
+    
+    dt_opt = 1/nu_0_max
+
+
+
+    
     # set up a batch of initial states for the simulation (all starting at psi_0)
     psi_0_batch_j_sim = jnp.tile(psi_0_j, (number_trajectories_sim, 1, 1))
     number_collapse_ops = L_operators_j.shape[0]
@@ -838,17 +856,32 @@ def main():
     U_j_retrieval, U_dag_j_retrieval, H_control_tilde_j_retrieval, L_operators_tilde_j_retrieval, L_operators_unitary_tilde_j_retrieval, LdagL_operators_tilde_j_retrieval = \
         transform_jax_to_rotating_frame(t_array_retrieval, H_0_j, H_control_j, L_operators_j, L_operators_transposed_j, LdagL_operators_j, par_QD)
 
+
+
+
+
+
+
+
+    
     # obtain the control FF arrays
-    control_FF_init_array =  control_FF_init(t_array_init)
+    control_FF_init_array = 0* control_FF_init(t_array_init)
     plot_control_field(control_FF_init, t_array_init, "Initialization")
     plot_control_field_fft( control_FF_init, t_array_init, "Initialization" )
-    control_FF_storage_array = control_FF_storage(t_array_storage)
+    control_FF_storage_array =  0* control_FF_storage(t_array_storage)
     plot_control_field(control_FF_storage, t_array_storage, "Storage")
     plot_control_field_fft(control_FF_storage, t_array_storage, "Storage")
-    control_FF_retrieval_array = control_FF_retrieval(t_array_retrieval)
+    control_FF_retrieval_array =  0* control_FF_retrieval(t_array_retrieval)
     plot_control_field(control_FF_retrieval, t_array_retrieval, "Retrieval")
     plot_control_field_fft(control_FF_retrieval, t_array_retrieval, "Retrieval")
 
+
+
+
+
+
+
+    
     # simulate the initialization pulse
     timer.start()
     all_trajs_init, psi_end_batch_j_init = simulate_batch_rotating_frame(control_FF_init_array, psi_0_batch_j_sim, dt_opt, U_j_init, H_control_tilde_j_init, L_operators_tilde_j_init, L_operators_unitary_tilde_j_init, LdagL_operators_tilde_j_init, I_imag_j, number_collapse_ops, number_trajectories_sim, len(t_array_init))
