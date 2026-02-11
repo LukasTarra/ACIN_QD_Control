@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 
 """
 Simulation & Pulse Parameters Module
@@ -53,16 +53,19 @@ class ParametersQD:
         self.E_X_V          = self.hbar_omega_X - 0.5*self.delta_X #vertical exciton energy (meV)
         self.E_D_H          = self.hbar_omega_D + 0.5*self.delta_D #horizontal dark exciton energy (meV)
         self.E_D_V          = self.hbar_omega_D - 0.5*self.delta_D #vertical dark exciton energy (meV)
+
         self.g_hx           = 0.205 #hole g factor (1)
         self.g_ex           = 0.205 #electron g factor (1)
+
         self.Gamma_X_inv    = 180 #inverse exciton decay rate (ps)
         # dark state lifetime set to infinity (no decay)
         self.Gamma_XX_inv   = 120 #inverse biexciton decay rate (ps)
+        
         self.QD_size        = 5 #QD size (nm)
         self.temperature    = 1.5 #QD temperature (K)
         self.B_x            = 3.4 #B field in x direction (T)
         self.B_z            = 0 #B field in z direction (T)
-        
+
     
     def _set_alternative_parameters(self):
         """High-fidelity simulation parameters."""
@@ -131,79 +134,138 @@ class ParametersQD:
             fs_ratio = (self.delta_X) / kT
             print(f"Fine Structure/Thermal:        {fs_ratio:>8.2f}")
 
-            
         print(f"\n{'='*50}")
         print("END PARAMETER SUMMARY")
         print(f"{'='*50}\n")
 
 
+        
 class DefaultPulse:
-    def __init__(self, pulse_id, t_pulse_center=0):
+    """
+    A class to represent a default optical pulse with specific parameters based on pulse type.
+    """
+
+    def __init__(self, pulse_id, t_pulse_center=0, omega_RF=0):
+        """
+        Initialize the DefaultPulse with a given pulse_id and optional t_pulse_center.
+
+        Args:
+            pulse_id (str): The type of pulse, which can be 'initialization', 'storage', or 'retrieval'.
+            t_pulse_center (float, optional): The center time of the pulse. Defaults to 0.
+            omega_RF (float, optional): Rotating frame frequency of the pulse. Defaults to 0.
+        
+        """
         self.pulse_id = pulse_id
         self.t_pulse_center = t_pulse_center
+        self.omega_RF = omega_RF
         self._load_default_pulse(pulse_id)
-    
+
+        
     def _load_default_pulse(self, pulse_id):
-        #general parameters
-        self.hbar           = 0.6582173 #reduced Planck constant (meV*ps)
-    
-        #initialization pulse
+        """
+        Load the default parameters for the pulse based on the pulse_id.
+
+        Args:
+            pulse_id (str): The type of pulse, which can be 'initialization', 'storage', or 'retrieval'.
+
+        Raises:
+            ValueError: If the pulse_id is not one of the valid options.
+        """
+        # General parameters
+        self.hbar = 0.6582173  # Reduced Planck constant (meV*ps)
+
+        # Initialization pulse
         if pulse_id == "initialization":
-            self.hbar_omega_P = 1.5610e3 #center frequency (meV)
-            self.tau_0_P      = 2.9 #non-chirped pulse width (ps)
-            self.GDD_P        = 0 #group delay dispersion (ps^2)
-            self.Theta_P      = 4.5*np.pi #pulse area (1)
-        #storage pulse
+            self.hbar_omega_P = 1.5610e3  # Center frequency (meV)
+            self.tau_0_P = 2.9  # Non-chirped pulse width (ps)
+            self.GDD_P = 0  # Group delay dispersion (ps^2)
+            self.Theta_P = 4.5 * np.pi  # Pulse area (1)
+        # Storage pulse
         elif pulse_id == "storage":
-            self.hbar_omega_P = 1.5590e3 #center frequency (meV)
-            self.tau_0_P      = 2.9 #non-chirped pulse width (ps)
-            self.GDD_P        = -45 #group delay dispersion (ps^2)
-            self.Theta_P      = 3.5*np.pi #pulse area (1)
-        #retrieval pulse
+            self.hbar_omega_P = 1.5590e3  # Center frequency (meV)
+            self.tau_0_P = 2.9  # Non-chirped pulse width (ps)
+            self.GDD_P = -45  # Group delay dispersion (ps^2) #-80 seems better
+            self.Theta_P = 3.5 * np.pi  # Pulse area (1) # 3 seems better
+        # Retrieval pulse
         elif pulse_id == "retrieval":
-            self.hbar_omega_P = 1.5590e3 #center frequency (meV)
-            self.tau_0_P      = 2.9 #non-chirped pulse width (ps)
-            self.GDD_P        = 45 #group delay dispersion (ps^2)
-            self.Theta_P      = 3.5*np.pi #pulse area (1)
+            self.hbar_omega_P = 1.5590e3  # Center frequency (meV)
+            self.tau_0_P = 2.9  # Non-chirped pulse width (ps)
+            self.GDD_P = 45  # Group delay dispersion (ps^2)
+            self.Theta_P = 3.5 * np.pi  # Pulse area (1)
         else:
             raise ValueError("Invalid pulse_id. Must be 'initialization', 'storage', or 'retrieval'.")
 
-        # compute the effective pulsewidth
+        # Compute the effective pulsewidth
         self.tau = np.sqrt(self.GDD_P**2 / (self.tau_0_P**2) + self.tau_0_P**2)
-        # compute the simulated pulsewidth
-        self.delta_t_sim = 3*self.tau
-       
-    def get_chirped_pulse_function(self):
+        # Compute the simulated pulsewidth
+        self.delta_t_sim = 3 * self.tau
+
         
+    def get_chirped_pulse_function(self):
+        """
+        Generate a function representing the chirped pulse based on the pulse parameters.
+
+        Returns:
+            function: A function that takes time t as input and returns the complex electric field of the chirped pulse at that time.
+        """
         # Extract pulse parameters
+        omega_RF = self.omega_RF
         omega_P = self.hbar_omega_P / self.hbar  # Convert to angular frequency (rad/ps)
         tau_0 = self.tau_0_P
         GDD = self.GDD_P
         Theta = self.Theta_P
 
-        # compute chirped parameters
+        # Compute chirped parameters
         tau = self.tau
         a = GDD / (GDD**2 + tau_0**4)
-        
+        self.a = a
+
         # Calculate peak amplitude from pulse area
         # For a Gaussian pulse: Theta = E0 * tau / sqrt(2*pi)
-        pulse_amplitude = Theta / np.sqrt(2*np.pi * tau * tau_0)
-    
+        self.pulse_amplitude = Theta / np.sqrt(2 * np.pi * tau * tau_0)
+
         # Define the chirped pulse function
         def chirped_pulse(t):
+            """
+            Compute the complex electric field of the chirped pulse at a given time t.
+
+            Args:
+                t (float): The time at which to compute the electric field.
+
+            Returns:
+                complex: The complex electric field of the chirped pulse at time t.
+            """
             # Gaussian envelope
-            envelope = pulse_amplitude * np.exp(-(t-self.t_pulse_center)**2 / (2 * tau**2))
-        
+            envelope = self.pulse_amplitude * np.exp(-(t - self.t_pulse_center)**2 / (2 * tau**2))
+
             # Chirp phase (includes GDD term)
             # Phase = omega0*t + GDD*t^2/2
-            phase = (omega_P + 0.5*a*(t-self.t_pulse_center)) * (t-self.t_pulse_center)
+            phase = (omega_P - omega_RF + 0.5 * a * (t - self.t_pulse_center)) * (t - self.t_pulse_center)
 
             # Return complex electric field
             return envelope * np.exp(-1j * phase)
-    
+
         return chirped_pulse
 
+    
+    def get_pulse_parameters_dict(self):
+        
+        return {
+            'omega_P': self.hbar_omega_P / self.hbar,
+            'omega_RF': self.omega_RF,
+            'tau_0': self.tau_0_P,
+            'GDD': self.GDD_P,
+            'Theta': self.Theta_P,
+            'pulse_amplitude': self.pulse_amplitude,
+            'tau': self.tau,
+            'a': self.a
+        }
+
+    
     def print_summary(self):
+        """
+        Print a summary of the pulse parameters.
+        """
         # Pulse parameters
         if hasattr(self, "hbar_omega_P"):
             print(f"\n{'-'*50}")
@@ -220,6 +282,7 @@ class DefaultPulse:
             print(f"  Pulse Width:                  {self.tau_0_P:>8.1f} ps")
             print(f"  Group Delay Dispersion:       {self.GDD_P:>8.1f} ps²")
             print(f"  Pulse Area:                   {self.Theta_P/np.pi:>8.1f}*pi")
+
         
 # ============================================================================
 # CONVENIENCE FUNCTIONS
@@ -229,8 +292,8 @@ def get_parameters_QD(set_id=1):
     """Get parameters instance."""
     return ParametersQD(set_id)
 
-def get_default_pulse(pulse_id, t_pulse_center):
-    return DefaultPulse(pulse_id, t_pulse_center)
+def get_default_pulse(pulse_id, t_pulse_center, omega_RF):
+    return DefaultPulse(pulse_id, t_pulse_center, omega_RF)
     
 def get_available_parameter_IDs():
     """Return available parameter set IDs."""
@@ -244,9 +307,9 @@ if __name__ == "__main__":
     # Test the current parameter set
     params_QD = get_parameters_QD()
     params_QD.print_summary()
-    pulse_init = get_default_pulse("initialization", 0)
-    pulse_storage = get_default_pulse("storage", 0)
-    pulse_retrieval = get_default_pulse("retrieval", 0)
+    pulse_init = get_default_pulse("initialization", 0, 0)
+    pulse_storage = get_default_pulse("storage", 0, 0)
+    pulse_retrieval = get_default_pulse("retrieval", 0, 0)
     pulse_init.print_summary()
     pulse_storage.print_summary()
     pulse_retrieval.print_summary()
