@@ -9,6 +9,7 @@ Created on Mon Jun 30 16:07:57 2025 by L.K.Tarra
 """
 
 import numpy as np
+import jax.numpy as jnp
 
 # ============================================================================
 # PARAMETER SET SELECTOR
@@ -142,7 +143,7 @@ class ParametersQD:
         
 class DefaultPulse:
     """
-    A class to represent a default optical pulse with specific parameters based on pulse type.
+    A class to represent a default chirped optical pulse with specific parameters based on pulse type.
     """
 
     def __init__(self, pulse_id, t_pulse_center=0, omega_RF=0):
@@ -195,11 +196,6 @@ class DefaultPulse:
         else:
             raise ValueError("Invalid pulse_id. Must be 'initialization', 'storage', or 'retrieval'.")
 
-        # Compute the effective pulsewidth
-        self.tau = np.sqrt(self.GDD_P**2 / (self.tau_0_P**2) + self.tau_0_P**2)
-        # Compute the simulated pulsewidth
-        self.delta_t_sim = 3 * self.tau
-
         
     def get_chirped_pulse_function(self):
         """
@@ -216,13 +212,14 @@ class DefaultPulse:
         Theta = self.Theta_P
 
         # Compute chirped parameters
-        tau = self.tau
+        tau = jnp.sqrt(self.GDD_P**2 / (self.tau_0_P**2) + self.tau_0_P**2)
+        self.tau = tau
         a = GDD / (GDD**2 + tau_0**4)
         self.a = a
 
         # Calculate peak amplitude from pulse area
         # For a Gaussian pulse: Theta = E0 * tau / sqrt(2*pi)
-        self.pulse_amplitude = Theta / np.sqrt(2 * np.pi * tau * tau_0)
+        self.pulse_amplitude = Theta / jnp.sqrt(2 * jnp.pi * tau * tau_0)
 
         # Define the chirped pulse function
         def chirped_pulse(t):
@@ -236,14 +233,14 @@ class DefaultPulse:
                 complex: The complex electric field of the chirped pulse at time t.
             """
             # Gaussian envelope
-            envelope = self.pulse_amplitude * np.exp(-(t - self.t_pulse_center)**2 / (2 * tau**2))
+            envelope = self.pulse_amplitude * jnp.exp(-(t - self.t_pulse_center)**2 / (2 * tau**2))
 
             # Chirp phase (includes GDD term)
             # Phase = omega0*t + GDD*t^2/2
             phase = (omega_P - omega_RF + 0.5 * a * (t - self.t_pulse_center)) * (t - self.t_pulse_center)
 
             # Return complex electric field
-            return envelope * np.exp(-1j * phase)
+            return envelope * jnp.exp(-1j * phase)
 
         return chirped_pulse
 

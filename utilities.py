@@ -89,11 +89,15 @@ def real_to_complex_block(M: jnp.ndarray) -> jnp.ndarray:
     return complex_matrix
 
 
+def complex_to_real_vector(v: jnp.ndarray) -> jnp.ndarray:
+    """convert a complex vector to real represenation by stacking real & imag parts."""
+    return jnp.concatenate([v.real, v.imag])
 
 
-
-
-
+def real_to_complex_vector(v: jnp.ndarray) -> jnp.ndarray:
+    """convert a real vector to complex represenation by adding the stacked upper and lower halves."""
+    n = v.shape[0]
+    return v[:n//2] + 1j * v[n//2:]
 
 
 

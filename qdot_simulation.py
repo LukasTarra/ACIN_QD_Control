@@ -9,6 +9,29 @@ import warnings
 
 from utilities import *
 
+def create_complex_QD_state_vectors():
+    """create the six complex state vectors of the QD system.
+    Returns:
+    state_vectors: tuple of jnp arrays
+    """
+    ground_state = jnp.zeros((6,1), dtype=jnp.complex64)
+    ground_state = ground_state.at[0].set(1)
+    exciton_H = jnp.zeros((6,1), dtype=jnp.complex64)
+    exciton_H = exciton_H.at[1].set(1)
+    exciton_V = jnp.zeros((6,1), dtype=jnp.complex64)
+    exciton_V = exciton_V.at[2].set(1)
+    dark_exciton_H = jnp.zeros((6,1), dtype=jnp.complex64)
+    dark_exciton_H = dark_exciton_H.at[3].set(1)
+    dark_exciton_V = jnp.zeros((6,1), dtype=jnp.complex64)
+    dark_exciton_V = dark_exciton_V.at[4].set(1)
+    biexciton = jnp.zeros((6,1), dtype=jnp.complex64)
+    biexciton = biexciton.at[5].set(1)
+
+    state_vectors = ground_state, exciton_H, exciton_V, dark_exciton_H, dark_exciton_V, biexciton
+
+    return state_vectors
+
+
 def create_QD_hamiltonian_terms_and_states(params_QD: ParametersQD):
     """Create the Hamiltonian terms and state vectors for a quantum dot system.
 
@@ -43,19 +66,9 @@ def create_QD_hamiltonian_terms_and_states(params_QD: ParametersQD):
     g_ez = 0              # Placeholder for electron g factor in z direction
     g_hz = 0              # Placeholder for hole g factor in z direction
 
-    # Define the six-level system
-    ground_state = jnp.zeros((6,1), dtype=jnp.complex64)
-    ground_state = ground_state.at[0].set(1)
-    exciton_H = jnp.zeros((6,1), dtype=jnp.complex64)
-    exciton_H = exciton_H.at[1].set(1)
-    exciton_V = jnp.zeros((6,1), dtype=jnp.complex64)
-    exciton_V = exciton_V.at[2].set(1)
-    dark_exciton_H = jnp.zeros((6,1), dtype=jnp.complex64)
-    dark_exciton_H = dark_exciton_H.at[3].set(1)
-    dark_exciton_V = jnp.zeros((6,1), dtype=jnp.complex64)
-    dark_exciton_V = dark_exciton_V.at[4].set(1)
-    biexciton = jnp.zeros((6,1), dtype=jnp.complex64)
-    biexciton = biexciton.at[5].set(1)
+    # Define the six-level system state vectors
+    state_vectors = create_complex_QD_state_vectors()
+    ground_state, exciton_H, exciton_V, dark_exciton_H, dark_exciton_V, biexciton = state_vectors
 
     # Define the Hamiltonian terms
     H_QD = E_X_H * exciton_H @ exciton_H.conj().T + E_X_V * exciton_V @ exciton_V.conj().T + \
@@ -295,7 +308,7 @@ def create_control_Hamiltonians_rotating(pol_overlaps, state_vectors):
     return H_c_tilde_real, H_c_tilde_imag
 
 
-def create_initial_state(psi_0_choice: str, state_vectors) -> jnp.ndarray:
+def create_initial_state(psi_0_choice: str) -> jnp.ndarray:
     """
     Create the initial state for the system.
 
@@ -310,6 +323,7 @@ def create_initial_state(psi_0_choice: str, state_vectors) -> jnp.ndarray:
         ValueError: If the psi_0_choice is not a valid key in state_map.
     """
     # Unpack the state vectors
+    state_vectors = create_complex_QD_state_vectors()
     ground_state, exciton_H, exciton_V, dark_exciton_H, dark_exciton_V, biexciton = state_vectors
 
     # Create a mapping from state names to state vectors
@@ -334,7 +348,7 @@ def create_initial_state(psi_0_choice: str, state_vectors) -> jnp.ndarray:
     return psi_0
 
 
-def create_target_state(psi_T_choice: str, state_vectors) -> jnp.ndarray:
+def create_target_state(psi_T_choice: str) -> jnp.ndarray:
     """
     Create the target state for the system.
 
@@ -349,6 +363,7 @@ def create_target_state(psi_T_choice: str, state_vectors) -> jnp.ndarray:
         ValueError: If the psi_T_choice is not a valid key in state_map.
     """
     # Unpack the state vectors
+    state_vectors = create_complex_QD_state_vectors()
     ground_state, exciton_H, exciton_V, dark_exciton_H, dark_exciton_V, biexciton = state_vectors
 
     # Create a mapping from state names to state vectors
@@ -373,7 +388,7 @@ def create_target_state(psi_T_choice: str, state_vectors) -> jnp.ndarray:
     return psi_T
 
 
-def jax_sim_setup(psi_0_choice, psi_T_choice, pol_overlaps, t_array, params_QD: ParametersQD):
+def jax_sim_setup(psi_0_choice, pol_overlaps, t_array, params_QD: ParametersQD):
     """
     Sets up the simulation for the quantum dot system in the rotating frame.
 
@@ -401,9 +416,7 @@ def jax_sim_setup(psi_0_choice, psi_T_choice, pol_overlaps, t_array, params_QD: 
     L_operators, LdagL_operators = create_collapse_operators(state_vectors, params_QD)
     Ldag_operators = [L.conj().T for L in L_operators]
     # Create initial state
-    psi_0 = create_initial_state(psi_0_choice, state_vectors)
-    # Create target state
-    psi_T = create_target_state(psi_T_choice, state_vectors)
+    psi_0 = create_initial_state(psi_0_choice)
     # create the control Hamiltonians in rotating frame
     H_c_tilde_real, H_c_tilde_imag = create_control_Hamiltonians_rotating(pol_overlaps, state_vectors)
 
@@ -413,8 +426,7 @@ def jax_sim_setup(psi_0_choice, psi_T_choice, pol_overlaps, t_array, params_QD: 
     Ldag_operators_j = jnp.stack( [jnp.array(complex_to_real_block(L)) for L in Ldag_operators] )
     LdagL_operators_j = jnp.stack( [jnp.array(complex_to_real_block(LdagL)) for LdagL in LdagL_operators] )
     sum_LdagL_operators_j = jnp.sum(LdagL_operators_j, axis=0)
-    psi_0_j = jnp.concatenate([psi_0.real, psi_0.imag])
-    psi_T_j = jnp.concatenate([psi_T.real, psi_T.imag])
+    psi_0_j = complex_to_real_vector(psi_0)
     H_c_tilde_real_j = jnp.array( complex_to_real_block(H_c_tilde_real) )
     H_c_tilde_imag_j = jnp.array( complex_to_real_block(H_c_tilde_imag) )
     I_imag_j = jnp.block([[jnp.zeros((6, 6)), -jnp.eye(6)], [jnp.eye(6), jnp.zeros((6, 6))]])
@@ -426,7 +438,7 @@ def jax_sim_setup(psi_0_choice, psi_T_choice, pol_overlaps, t_array, params_QD: 
     I_H_c_tilde_real_j = I_imag_j @ H_c_tilde_real_j
     I_H_c_tilde_imag_j = I_imag_j @ H_c_tilde_imag_j
 
-    return H_0_tilde_eff_j, L_operators_j, Ldag_operators_j, sum_LdagL_operators_j, psi_0_j, psi_T_j, H_c_tilde_real_j, H_c_tilde_imag_j, I_imag_j, I_H_0_tilde_eff_j, I_H_c_tilde_real_j, I_H_c_tilde_imag_j, U_rotating_frame_j
+    return H_0_tilde_eff_j, L_operators_j, Ldag_operators_j, sum_LdagL_operators_j, psi_0_j, H_c_tilde_real_j, H_c_tilde_imag_j, I_imag_j, I_H_0_tilde_eff_j, I_H_c_tilde_real_j, I_H_c_tilde_imag_j, U_rotating_frame_j
 
 
 def create_jax_noise_traj_arrays(key_index: int, number_collapse: int, number_trajectories: int, number_steps: int, dt: float) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -503,10 +515,20 @@ def em_step(psi_in, Omega_real, Omega_imag, dW_real, dW_imag, I_H_0_tilde_eff, L
     # Perform N_Hamilton_steps RK2 steps for the Hamiltonian term
     # Use fori_loop to apply the RK2 steps sequentially
     dt_step = dt / N_Hamilton_steps  # Sub-step size
-    def body_fn(i, psi):
-        return hamiltonian_rk2_step(psi, I_H_total, dt_step)
+
+    # Define the scan body function: carry is psi, x is dummy
+    def scan_body(psi, dummy_input):
+        return hamiltonian_rk2_step(psi, I_H_total, dt_step), None
     
-    psi = normalize_psi(fori_loop(0, N_Hamilton_steps, body_fn, psi_in))
+    # Create a dummy array of size N_Hamiltonian_steps to drive the loop
+    # scan will iterate over this array, applying scan_body each time
+    dummy_array = jnp.arange(N_Hamilton_steps)
+    
+    # Use scan instead of fori_loop for differentiability
+    psi_final, _ = scan(scan_body, psi_in, dummy_array)
+    psi = normalize_psi(psi_final)
+
+    
 
     # compute the state average of the Ldag operators
     dim_half = I_H_0_tilde_eff.shape[1] // 2
@@ -553,6 +575,15 @@ def simulate_single_traj(
     return traj
 
 sim_forward_vmap = vmap(simulate_single_traj, in_axes=(None, None, 0, 0, None, None, None, None, None, None, None, None, None, None), out_axes=0)
+
+def simulate_batch(random_key, input_array, number_trajectories, number_steps, dt, psi_0_j, I_H_0_tilde_eff_j, L_operators_j, Ldag_operators_j, sum_LdagL_operators_j, I_H_c_tilde_real_j, I_H_c_tilde_imag_j, dt_sim, I_imag_j, N_Hamiltonian_steps):
+    input_array_real = jnp.real(input_array)
+    input_array_imag = jnp.imag(input_array)
+    number_collapse = L_operators_j.shape[0]
+    dW_real_j, dW_imag_j = create_jax_noise_traj_arrays(random_key, number_collapse, number_trajectories, number_steps, dt)
+    traj = sim_forward_vmap(input_array_real, input_array_imag, dW_real_j, dW_imag_j, psi_0_j, I_H_0_tilde_eff_j, L_operators_j, Ldag_operators_j, sum_LdagL_operators_j, I_H_c_tilde_real_j, I_H_c_tilde_imag_j, dt_sim, I_imag_j, N_Hamiltonian_steps)
+
+    return traj
 
 
 class QDSimResults:
@@ -675,7 +706,7 @@ class QDSimResults:
         plt.tight_layout()
         plt.show()
     
-    def plot_control_field(self, title):
+    def plot_control_field_real(self, title):
         if callable(self.control_FF):
             control_FF_array = self.control_FF(self.t_array)
         elif isinstance(self.control_FF, (list, np.ndarray, jnp.ndarray)):
@@ -683,9 +714,23 @@ class QDSimResults:
         else:
             raise TypeError("control_FF must be either a callable or an array (list or numpy.ndarray)")
         plt.figure()
-        plt.plot(self.t_array, np.asarray(control_FF_array))
+        plt.plot(self.t_array, np.real(np.asarray(control_FF_array)))
         plt.xlabel("Time (ps)")
-        plt.ylabel("Control Field (meV)")
+        plt.ylabel("Control Field (real part, meV)")
+        plt.title(title)
+        plt.show()
+
+    def plot_control_field_imag(self, title):
+        if callable(self.control_FF):
+            control_FF_array = self.control_FF(self.t_array)
+        elif isinstance(self.control_FF, (list, np.ndarray, jnp.ndarray)):
+            control_FF_array = self.control_FF
+        else:
+            raise TypeError("control_FF must be either a callable or an array (list or numpy.ndarray)")
+        plt.figure()
+        plt.plot(self.t_array, np.imag(np.asarray(control_FF_array)))
+        plt.xlabel("Time (ps)")
+        plt.ylabel("Control Field (imaginary part, meV)")
         plt.title(title)
         plt.show()
     
